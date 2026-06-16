@@ -1,0 +1,47 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
+  body {
+    @apply font-sans text-navy-800 bg-navy-50 antialiased;
+  }
+  h1,
+  h2,
+  h3,
+  h4 {
+    @apply font-display tracking-tight;
+  }
+}
+
+@layer components {
+  .chip {
+    @apply inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-medium;
+  }
+  .card {
+    @apply bg-white rounded-lg border border-navy-100 shadow-card;
+  }
+  .btn-primary {
+    @apply inline-flex items-center justify-center rounded-md bg-rail px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-rail-dark focus:outline-none focus:ring-2 focus:ring-rail focus:ring-offset-2 transition-colors;
+  }
+  .btn-ghost {
+    @apply inline-flex items-center justify-center rounded-md px-3 py-1.5 text-sm font-medium text-navy-700 hover:bg-navy-100 transition-colors;
+  }
+  .input {
+    @apply w-full rounded-md border border-navy-200 bg-white px-3 py-2 text-sm shadow-sm focus:border-rail focus:outline-none focus:ring-1 focus:ring-rail;
+  }
+}
+
+/* Track motif used on login */
+.rail-track {
+  background-image: repeating-linear-gradient(
+    90deg,
+    rgba(255, 255, 255, 0.08) 0 8px,
+    transparent 8px 18px
+  );
+}
