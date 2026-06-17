@@ -1,12 +1,15 @@
 import { useMemo } from 'react';
-import { useIntegrations } from '../context/IntegrationsContext';
+import { useAppDispatch, useAppSelector } from '../store/hooks';
+import { fetchIntegrationsThunk } from '../store/integrationsSlice';
 import StatCard from '../components/StatCard';
 import ProjectsPieChart from '../components/ProjectsPieChart';
 import { getCategory, getCategoryColor } from '../lib/utils';
 import { PageSpinner, PageError } from '../components/PageStates';
 
 export default function Dashboard() {
-  const { integrations, loading, error, refetch } = useIntegrations();
+  const dispatch = useAppDispatch();
+  const { items: integrations, loading, error } = useAppSelector(s => s.integrations);
+  const refetch = () => dispatch(fetchIntegrationsThunk());
 
   // Derive distinct categories and counts from actual data — no hardcoded list.
   const { total, active, inactive, byCategory } = useMemo(() => {

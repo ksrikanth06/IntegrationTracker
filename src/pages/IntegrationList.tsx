@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react';
-import { useIntegrations } from '../context/IntegrationsContext';
 import { useAuth } from '../context/AuthContext';
+import { useAppDispatch, useAppSelector } from '../store/hooks';
+import { fetchIntegrationsThunk, addIntegrationThunk } from '../store/integrationsSlice';
 import FilterBar, { type Filters } from '../components/FilterBar';
 import InterfaceList from '../components/InterfaceList';
 import AddIntegrationModal from '../components/AddIntegrationModal';
@@ -15,7 +16,9 @@ const initialFilters: Filters = {
 };
 
 export default function IntegrationList() {
-  const { integrations, loading, error, addIntegration, refetch } = useIntegrations();
+  const dispatch = useAppDispatch();
+  const { items: integrations, loading, error } = useAppSelector(s => s.integrations);
+  const refetch = () => dispatch(fetchIntegrationsThunk());
   const { user } = useAuth();
   const [filters, setFilters] = useState<Filters>(initialFilters);
   const [showAddModal, setShowAddModal] = useState(false);
@@ -105,7 +108,7 @@ export default function IntegrationList() {
             setSaving(true);
             setSaveError(null);
             try {
-              await addIntegration(item);
+              await dispatch(addIntegrationThunk(item)).unwrap();
               setShowAddModal(false);
             } catch (e) {
               setSaveError((e as Error).message);

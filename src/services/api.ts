@@ -1,5 +1,5 @@
 import { API_BASE_URL } from '../config';
-import type { Interface } from '../types';
+import type { Interface, Log } from '../types';
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`${API_BASE_URL}${path}`, {
@@ -22,4 +22,8 @@ export function postIntegration(item: Interface): Promise<Interface> {
     method: 'POST',
     body: JSON.stringify(item),
   });
+}
+
+export function fetchLogs(): Promise<Log[]> {
+  return request<Log[]>('/logs');
 }

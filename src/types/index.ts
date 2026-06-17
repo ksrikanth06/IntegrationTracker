@@ -22,6 +22,27 @@ export interface Interface {
   ProjectOps: ProjectOps | string;
 }
 
+export interface Log {
+  ID: string;
+  InterfaceID: string;
+  TransactionID: string;
+  EventType: string;
+  ErrorType: string;
+  ServiceName: string;
+  LogMessage: string;
+  ServerName: string;
+  CreatedDate: string;
+  DisplayOrder: string;
+  IsAutoRetry: string;
+  RequestPayload: string;
+  ResponsePayload: string;
+  ErrorPayload: string;
+  CreatedBy: string;
+  ModifiedBy: string;
+  ModifiedDate: string;
+  IsActive: string;
+}
+
 export interface User {
   username: string;
   displayName: string;
