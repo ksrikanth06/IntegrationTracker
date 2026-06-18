@@ -6,38 +6,60 @@ import {
 } from 'recharts';
 import type { Log } from '../types';
 import { useAppDispatch, useAppSelector } from '../store/hooks';
-import { fetchLogsThunk } from '../store/logsSlice';
+import { fetchRecentLogsThunk, syncRecentLogsThunk } from '../store/logsSlice';
 import { PageSpinner, PageError } from '../components/PageStates';
 
-// Parse "HH:MM:SS.f" (log data) or "HH:MM" (time input) → minutes since midnight
-function parseTimeStr(s: string): number {
-  const parts = s.split(':');
-  if (parts.length < 2) return NaN;
-  const h = parseInt(parts[0], 10);
-  const m = parseInt(parts[1], 10);
-  if (isNaN(h) || isNaN(m)) return NaN;
-  return h * 60 + m;
-}
+const fmtTs = (s: string) =>
+  s && s !== 'NULL'
+    ? new Date(s).toLocaleString(undefined, {
+        month: 'short', day: 'numeric',
+        hour: '2-digit', minute: '2-digit', second: '2-digit',
+      })
+    : '—';
 
-type EventFilter = 'ALL' | 'Success' | 'Error';
+// Parse any date/datetime string → epoch ms; returns NaN on failure
+const toEpoch = (s: string): number => {
+  if (!s) return NaN;
+  const ms = new Date(s).getTime();
+  return isNaN(ms) ? NaN : ms;
+};
+
+// Format a datetime-local input value for chip display
+const fmtFilterLabel = (s: string) =>
+  s
+    ? new Date(s).toLocaleString(undefined, {
+        month: 'short', day: 'numeric', year: 'numeric',
+        hour: '2-digit', minute: '2-digit', second: '2-digit',
+      })
+    : '—';
+
+type EventFilter = 'ALL' | 'Start' | 'Info' | 'Success' | 'Failure';
 type TimeMode   = 'NONE' | 'AFTER' | 'BEFORE' | 'BETWEEN';
 
 export default function LogsExplorer() {
   const dispatch = useAppDispatch();
   const { items: allLogs, loading, error } = useAppSelector(s => s.logs);
   const { items: allInterfaces } = useAppSelector(s => s.integrations);
-  const refetch = () => dispatch(fetchLogsThunk());
+  const syncing = useAppSelector(s => s.logs.loading);
+
+  // Fetch once on mount (MAINTAIN_CACHE controls whether the network is hit)
+  useEffect(() => { dispatch(fetchRecentLogsThunk()); }, [dispatch]);
+
+  const refetch = () => dispatch(syncRecentLogsThunk());
 
   // ── Filter state ──────────────────────────────────────────────────────────
   const [selectedIfIds, setSelectedIfIds] = useState<Set<string>>(new Set());
   const [ifDropdownOpen, setIfDropdownOpen] = useState(false);
   const [ifSearch, setIfSearch]             = useState('');
   const [keyword, setKeyword]               = useState('');
+  const [txnFilter, setTxnFilter]           = useState('');
   const [eventFilter, setEventFilter]       = useState<EventFilter>('ALL');
   const [timeMode, setTimeMode]             = useState<TimeMode>('NONE');
   const [timeAfter, setTimeAfter]           = useState('');
   const [timeBefore, setTimeBefore]         = useState('');
   const [expandedLog, setExpandedLog]       = useState<string | null>(null);
+  const [page, setPage]                     = useState(1);
+  const PAGE_SIZE = 20;
 
   const ifDropdownRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -50,13 +72,20 @@ export default function LogsExplorer() {
     return () => document.removeEventListener('mousedown', onClickOutside);
   }, [ifDropdownOpen]);
 
-  // ── Summary stats (always from all logs) ─────────────────────────────────
+  // ── Summary stats (always from all logs, transactions-based rate) ────────
   const stats = useMemo(() => {
-    const total      = allLogs.length;
-    const success    = allLogs.filter(l => l.EventType === 'Success').length;
-    const errors     = allLogs.filter(l => l.EventType === 'Error').length;
+    const txMap: Record<string, string> = {};
+    for (const l of allLogs) {
+      if (l.EventType === 'Success' || l.EventType === 'Failure') {
+        txMap[l.TransactionID] = l.EventType;
+      }
+    }
+    const txVals     = Object.values(txMap);
+    const totalTxns  = txVals.length;
+    const success    = txVals.filter(v => v === 'Success').length;
+    const failures   = txVals.filter(v => v === 'Failure').length;
     const interfaces = new Set(allLogs.map(l => l.InterfaceID)).size;
-    return { total, success, errors, interfaces };
+    return { total: allLogs.length, totalTxns, success, failures, interfaces };
   }, [allLogs]);
 
   // ── Name lookup ───────────────────────────────────────────────────────────
@@ -68,14 +97,14 @@ export default function LogsExplorer() {
 
   // ── Bar chart: top 8 interfaces by volume ────────────────────────────────
   const chartData = useMemo(() => {
-    const map: Record<string, { success: number; error: number }> = {};
+    const map: Record<string, { Start: number; Info: number; Success: number; Failure: number }> = {};
     for (const l of allLogs) {
-      if (!map[l.InterfaceID]) map[l.InterfaceID] = { success: 0, error: 0 };
-      if (l.EventType === 'Success') map[l.InterfaceID].success++;
-      else map[l.InterfaceID].error++;
+      if (!map[l.InterfaceID]) map[l.InterfaceID] = { Start: 0, Info: 0, Success: 0, Failure: 0 };
+      const et = l.EventType as keyof (typeof map)[string];
+      if (et in map[l.InterfaceID]) map[l.InterfaceID][et]++;
     }
     return Object.entries(map)
-      .map(([id, { success, error }]) => ({ id, success, error, total: success + error }))
+      .map(([id, c]) => ({ id, ...c, total: c.Start + c.Info + c.Success + c.Failure }))
       .sort((a, b) => b.total - a.total)
       .slice(0, 8);
   }, [allLogs]);
@@ -96,40 +125,52 @@ export default function LogsExplorer() {
     );
   }, [interfaceOptions, ifSearch]);
 
+  // Reset to page 1 whenever any filter changes
+  useEffect(() => {
+    setPage(1);
+    setExpandedLog(null);
+  }, [selectedIfIds, eventFilter, keyword, txnFilter, timeMode, timeAfter, timeBefore]);
+
   // ── Combined filtered log set ─────────────────────────────────────────────
   const filteredLogs = useMemo(() => {
-    const q = keyword.trim().toLowerCase();
+    const q   = keyword.trim().toLowerCase();
+    const txn = txnFilter.trim().toLowerCase();
     return allLogs.filter(l => {
       if (selectedIfIds.size > 0 && !selectedIfIds.has(l.InterfaceID)) return false;
       if (eventFilter !== 'ALL' && l.EventType !== eventFilter) return false;
+      if (txn && !l.TransactionID.toLowerCase().includes(txn)) return false;
       if (q) {
         const hay = [l.ID, l.TransactionID, l.ServiceName, l.LogMessage,
                      l.ServerName, l.InterfaceID, l.ErrorType].join(' ').toLowerCase();
         if (!hay.includes(q)) return false;
       }
       if (timeMode !== 'NONE') {
-        const logMin = parseTimeStr(l.CreatedDate);
-        if (!isNaN(logMin)) {
-          if (timeMode === 'AFTER'   && timeAfter  && logMin < parseTimeStr(timeAfter))   return false;
-          if (timeMode === 'BEFORE'  && timeBefore && logMin > parseTimeStr(timeBefore))  return false;
+        const logTs = toEpoch(l.CreatedDate);
+        if (!isNaN(logTs)) {
+          if (timeMode === 'AFTER'   && timeAfter  && logTs < toEpoch(timeAfter))                          return false;
+          if (timeMode === 'BEFORE'  && timeBefore && logTs > toEpoch(timeBefore))                         return false;
           if (timeMode === 'BETWEEN' && timeAfter  && timeBefore &&
-              (logMin < parseTimeStr(timeAfter) || logMin > parseTimeStr(timeBefore)))    return false;
+              (logTs < toEpoch(timeAfter) || logTs > toEpoch(timeBefore)))                                 return false;
         }
       }
       return true;
     });
-  }, [allLogs, selectedIfIds, eventFilter, keyword, timeMode, timeAfter, timeBefore]);
+  }, [allLogs, selectedIfIds, eventFilter, keyword, txnFilter, timeMode, timeAfter, timeBefore]);
+
+  const totalPages = Math.max(1, Math.ceil(filteredLogs.length / PAGE_SIZE));
+  const pagedLogs  = filteredLogs.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
 
   const hasActiveFilters =
-    selectedIfIds.size > 0 || keyword !== '' || eventFilter !== 'ALL' || timeMode !== 'NONE';
+    selectedIfIds.size > 0 || keyword !== '' || txnFilter !== '' || eventFilter !== 'ALL' || timeMode !== 'NONE';
 
-  const successRate = stats.total > 0
-    ? ((stats.success / stats.total) * 100).toFixed(1)
+  const successRate = stats.totalTxns > 0
+    ? ((stats.success / stats.totalTxns) * 100).toFixed(1)
     : '0';
 
   function clearAllFilters() {
     setSelectedIfIds(new Set());
     setKeyword('');
+    setTxnFilter('');
     setEventFilter('ALL');
     setTimeMode('NONE');
     setTimeAfter('');
@@ -169,20 +210,30 @@ export default function LogsExplorer() {
             Live snapshot of integration event logs across all interfaces.
           </p>
         </div>
-        <span className="inline-flex items-center gap-1.5 rounded-full border border-navy-200 bg-white px-3 py-1 text-xs font-medium text-navy-600">
-          <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse" />
-          Latest data
-        </span>
+        <button
+          onClick={refetch}
+          disabled={syncing}
+          className="inline-flex items-center gap-1.5 rounded-full border border-navy-200 bg-white px-3 py-1.5 text-xs font-medium text-navy-600 hover:bg-navy-50 disabled:opacity-50 transition-colors"
+          title="Sync latest logs from server"
+        >
+          <svg
+            className={`h-3.5 w-3.5 ${syncing ? 'animate-spin' : ''}`}
+            viewBox="0 0 20 20" fill="currentColor"
+          >
+            <path fillRule="evenodd" d="M15.312 11.424a5.5 5.5 0 0 1-9.201 2.466l-.312-.311h2.433a.75.75 0 0 0 0-1.5H3.989a.75.75 0 0 0-.75.75v4.242a.75.75 0 0 0 1.5 0v-2.43l.31.31a7 7 0 0 0 11.712-3.138.75.75 0 0 0-1.449-.39Zm1.23-3.723a.75.75 0 0 0 .219-.53V2.929a.75.75 0 0 0-1.5 0V5.36l-.31-.31A7 7 0 0 0 3.239 8.188a.75.75 0 1 0 1.448.389A5.5 5.5 0 0 1 13.89 6.11l.311.31h-2.432a.75.75 0 0 0 0 1.5h4.243a.75.75 0 0 0 .53-.219Z" clipRule="evenodd" />
+          </svg>
+          {syncing ? 'Syncing…' : 'Sync'}
+        </button>
       </div>
 
       {/* ── 4 Stat cards ────────────────────────────────────────────────── */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         <StatCard label="Total Events" value={stats.total} sub="All log entries"
           accent="#0E4F8A" icon={<IconLogs />} />
-        <StatCard label="Successful" value={stats.success} sub={`${successRate}% success rate`}
+        <StatCard label="Successful Txns" value={stats.success} sub={`${successRate}% of completed transactions`}
           accent="#10b981" icon={<IconCheck />} />
-        <StatCard label="Errors" value={stats.errors}
-          sub={`${stats.total > 0 ? ((stats.errors / stats.total) * 100).toFixed(1) : 0}% error rate`}
+        <StatCard label="Failed Txns" value={stats.failures}
+          sub={`${stats.totalTxns > 0 ? ((stats.failures / stats.totalTxns) * 100).toFixed(1) : 0}% of completed transactions`}
           accent="#ef4444" icon={<IconAlert />} />
         <StatCard label="Interfaces" value={stats.interfaces} sub="Unique interfaces"
           accent="#8b5cf6" icon={<IconNetwork />} />
@@ -203,16 +254,18 @@ export default function LogsExplorer() {
               <XAxis dataKey="id" tick={{ fontSize: 11, fill: '#64748b' }} axisLine={false} tickLine={false} />
               <YAxis tick={{ fontSize: 11, fill: '#64748b' }} axisLine={false} tickLine={false} allowDecimals={false} />
               <Tooltip
-                formatter={(value: number, name: string) => [value, name === 'success' ? 'Success' : 'Error']}
+                formatter={(value: number, name: string) => [value, name.charAt(0).toUpperCase() + name.slice(1)]}
                 labelFormatter={(label: string) => nameMap[label] || label}
                 contentStyle={{ fontSize: 12, borderRadius: 8, border: '1px solid #e2e8f0', boxShadow: '0 4px 6px -1px rgb(0 0 0 / .1)' }}
                 cursor={{ fill: '#f1f5f9' }}
               />
               <Legend formatter={(v) => (
-                <span style={{ fontSize: 12, color: '#475569' }}>{v === 'success' ? 'Success' : 'Error'}</span>
+                <span style={{ fontSize: 12, color: '#475569' }}>{v.charAt(0).toUpperCase() + v.slice(1)}</span>
               )} />
-              <Bar dataKey="success" stackId="a" fill="#10b981" />
-              <Bar dataKey="error"   stackId="a" fill="#ef4444" radius={[4, 4, 0, 0]} />
+              <Bar dataKey="Start"   stackId="a" fill="#0ea5e9" />
+              <Bar dataKey="Info"    stackId="a" fill="#f59e0b" />
+              <Bar dataKey="Success" stackId="a" fill="#10b981" />
+              <Bar dataKey="Failure" stackId="a" fill="#ef4444" radius={[4, 4, 0, 0]} />
             </BarChart>
           </ResponsiveContainer>
         </div>
@@ -336,9 +389,36 @@ export default function LogsExplorer() {
                 type="text"
                 value={keyword}
                 onChange={e => { setKeyword(e.target.value); setExpandedLog(null); }}
-                placeholder="Transaction ID, message, service, server…"
+                placeholder="Message, service, server…"
                 className="input w-full"
               />
+            </div>
+
+            {/* Transaction ID */}
+            <div className="min-w-[220px]">
+              <label className="block text-xs font-medium uppercase tracking-wider text-navy-600 mb-1.5">
+                Transaction ID
+              </label>
+              <div className="relative">
+                <input
+                  type="text"
+                  value={txnFilter}
+                  onChange={e => { setTxnFilter(e.target.value); setExpandedLog(null); }}
+                  placeholder="Paste or type a transaction ID…"
+                  className="input w-full pr-7 font-mono text-xs"
+                />
+                {txnFilter && (
+                  <button
+                    onClick={() => { setTxnFilter(''); setExpandedLog(null); }}
+                    className="absolute right-2 top-1/2 -translate-y-1/2 text-navy-400 hover:text-navy-700"
+                    aria-label="Clear transaction filter"
+                  >
+                    <svg width="14" height="14" viewBox="0 0 20 20" fill="currentColor">
+                      <path d="M6.28 5.22a.75.75 0 0 0-1.06 1.06L8.94 10l-3.72 3.72a.75.75 0 1 0 1.06 1.06L10 11.06l3.72 3.72a.75.75 0 1 0 1.06-1.06L11.06 10l3.72-3.72a.75.75 0 0 0-1.06-1.06L10 8.94 6.28 5.22Z" />
+                    </svg>
+                  </button>
+                )}
+              </div>
             </div>
 
             {/* Event type */}
@@ -352,8 +432,10 @@ export default function LogsExplorer() {
                 className="input min-w-[130px]"
               >
                 <option value="ALL">All events</option>
+                <option value="Start">Start</option>
+                <option value="Info">Info</option>
                 <option value="Success">Success</option>
-                <option value="Error">Error</option>
+                <option value="Failure">Failure</option>
               </select>
             </div>
           </div>
@@ -386,7 +468,8 @@ export default function LogsExplorer() {
                   {timeMode === 'BETWEEN' ? 'From' : 'After'}
                 </label>
                 <input
-                  type="time"
+                  type="datetime-local"
+                  step="1"
                   value={timeAfter}
                   onChange={e => setTimeAfter(e.target.value)}
                   className="input"
@@ -400,7 +483,8 @@ export default function LogsExplorer() {
                   {timeMode === 'BETWEEN' ? 'To' : 'Before'}
                 </label>
                 <input
-                  type="time"
+                  type="datetime-local"
+                  step="1"
                   value={timeBefore}
                   onChange={e => setTimeBefore(e.target.value)}
                   className="input"
@@ -437,12 +521,20 @@ export default function LogsExplorer() {
 
             {eventFilter !== 'ALL' && (
               <span className={`inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-medium ${
-                eventFilter === 'Error' ? 'bg-red-100 text-red-700' : 'bg-emerald-100 text-emerald-700'
+                eventFilter === 'Failure' ? 'bg-red-100 text-red-700'     :
+                eventFilter === 'Success' ? 'bg-emerald-100 text-emerald-700' :
+                eventFilter === 'Info'    ? 'bg-amber-100 text-amber-700' :
+                                            'bg-sky-100 text-sky-700'
               }`}>
                 {eventFilter}
                 <button
                   onClick={() => setEventFilter('ALL')}
-                  className={`ml-0.5 ${eventFilter === 'Error' ? 'text-red-400 hover:text-red-700' : 'text-emerald-400 hover:text-emerald-700'}`}
+                  className={`ml-0.5 ${
+                    eventFilter === 'Failure' ? 'text-red-400 hover:text-red-700'       :
+                    eventFilter === 'Success' ? 'text-emerald-400 hover:text-emerald-700' :
+                    eventFilter === 'Info'    ? 'text-amber-400 hover:text-amber-700'   :
+                                                'text-sky-400 hover:text-sky-700'
+                  }`}
                 >
                   <XIcon />
                 </button>
@@ -451,9 +543,9 @@ export default function LogsExplorer() {
 
             {timeMode !== 'NONE' && (
               <span className="inline-flex items-center gap-1 rounded-full bg-amber-100 px-2.5 py-0.5 text-xs font-medium text-amber-700">
-                {timeMode === 'AFTER'   ? `After ${timeAfter || '—'}` :
-                 timeMode === 'BEFORE'  ? `Before ${timeBefore || '—'}` :
-                 `${timeAfter || '—'} – ${timeBefore || '—'}`}
+                {timeMode === 'AFTER'   ? `After ${fmtFilterLabel(timeAfter)}` :
+                 timeMode === 'BEFORE'  ? `Before ${fmtFilterLabel(timeBefore)}` :
+                 `${fmtFilterLabel(timeAfter)} – ${fmtFilterLabel(timeBefore)}`}
                 <button
                   onClick={() => { setTimeMode('NONE'); setTimeAfter(''); setTimeBefore(''); }}
                   className="ml-0.5 text-amber-400 hover:text-amber-700"
@@ -476,12 +568,20 @@ export default function LogsExplorer() {
               : ''}
           </span>
           <span>
+            <span className="text-sky-600 font-medium">
+              {filteredLogs.filter(l => l.EventType === 'Start').length} start
+            </span>
+            {' · '}
+            <span className="text-amber-600 font-medium">
+              {filteredLogs.filter(l => l.EventType === 'Info').length} info
+            </span>
+            {' · '}
             <span className="text-emerald-600 font-medium">
               {filteredLogs.filter(l => l.EventType === 'Success').length} ok
             </span>
             {' · '}
             <span className="text-red-500 font-medium">
-              {filteredLogs.filter(l => l.EventType === 'Error').length} err
+              {filteredLogs.filter(l => l.EventType === 'Failure').length} fail
             </span>
           </span>
         </div>
@@ -517,8 +617,8 @@ export default function LogsExplorer() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-navy-100 bg-white">
-                  {filteredLogs.map(log => {
-                    const isError    = log.EventType === 'Error';
+                  {pagedLogs.map(log => {
+                    const isFailure  = log.EventType === 'Failure';
                     const isExpanded = expandedLog === log.ID;
                     return (
                       <>
@@ -526,7 +626,7 @@ export default function LogsExplorer() {
                           key={log.ID}
                           onClick={() => setExpandedLog(isExpanded ? null : log.ID)}
                           className={`cursor-pointer select-none transition-colors ${
-                            isError
+                            isFailure
                               ? isExpanded ? 'bg-red-50' : 'bg-red-50/40 hover:bg-red-50'
                               : isExpanded ? 'bg-navy-50' : 'hover:bg-navy-50'
                           }`}
@@ -554,7 +654,7 @@ export default function LogsExplorer() {
                           </td>
                           <td className="px-4 py-3 text-sm text-navy-800">
                             {log.LogMessage}
-                            {isError && log.ErrorType !== 'NULL' && (
+                            {isFailure && log.ErrorType !== 'NULL' && (
                               <span className="ml-2 text-xs text-red-600 font-medium">
                                 [{log.ErrorType}]
                               </span>
@@ -564,7 +664,7 @@ export default function LogsExplorer() {
                             {log.ServerName}
                           </td>
                           <td className="px-4 py-3 font-mono text-xs text-navy-500 whitespace-nowrap">
-                            {log.CreatedDate}
+                            {fmtTs(log.CreatedDate)}
                           </td>
                           <td className="px-4 py-3 text-navy-400">
                             <svg
@@ -592,15 +692,15 @@ export default function LogsExplorer() {
 
             {/* Mobile cards */}
             <div className="md:hidden divide-y divide-navy-100">
-              {filteredLogs.map(log => {
-                const isError    = log.EventType === 'Error';
+              {pagedLogs.map(log => {
+                const isFailure  = log.EventType === 'Failure';
                 const isExpanded = expandedLog === log.ID;
                 return (
                   <div
                     key={log.ID}
                     onClick={() => setExpandedLog(isExpanded ? null : log.ID)}
                     className={`p-4 cursor-pointer select-none transition-colors ${
-                      isError
+                      isFailure
                         ? isExpanded ? 'bg-red-50' : 'bg-red-50/40'
                         : isExpanded ? 'bg-navy-50' : 'hover:bg-navy-50/50'
                     }`}
@@ -611,7 +711,7 @@ export default function LogsExplorer() {
                         <span className="font-mono text-xs text-navy-500">{log.InterfaceID}</span>
                       </div>
                       <div className="flex items-center gap-2">
-                        <span className="font-mono text-xs text-navy-400">{log.CreatedDate}</span>
+                        <span className="font-mono text-xs text-navy-400">{fmtTs(log.CreatedDate)}</span>
                         <svg
                           className={`h-4 w-4 text-navy-400 transition-transform ${isExpanded ? 'rotate-180' : ''}`}
                           viewBox="0 0 20 20" fill="currentColor"
@@ -621,7 +721,7 @@ export default function LogsExplorer() {
                       </div>
                     </div>
                     <p className="text-sm text-navy-800 mb-1">{log.LogMessage}</p>
-                    {isError && log.ErrorType !== 'NULL' && (
+                    {isFailure && log.ErrorType !== 'NULL' && (
                       <p className="text-xs text-red-600 font-medium mb-1">{log.ErrorType}</p>
                     )}
                     <p className="text-xs text-navy-500 font-mono truncate">{log.TransactionID}</p>
@@ -634,6 +734,77 @@ export default function LogsExplorer() {
                 );
               })}
             </div>
+            {/* Pagination bar */}
+            {totalPages > 1 && (
+              <div className="flex items-center justify-between px-6 py-3 border-t border-navy-100 bg-white">
+                <span className="text-xs text-navy-500">
+                  Page <span className="font-semibold text-navy-800">{page}</span> of{' '}
+                  <span className="font-semibold text-navy-800">{totalPages}</span>
+                  {' '}·{' '}
+                  <span className="font-semibold text-navy-800">{filteredLogs.length}</span> total
+                </span>
+
+                <div className="flex items-center gap-1">
+                  <button
+                    onClick={() => { setPage(1); setExpandedLog(null); }}
+                    disabled={page === 1}
+                    className="rounded px-2 py-1 text-xs text-navy-600 hover:bg-navy-100 disabled:opacity-30 disabled:cursor-not-allowed"
+                    aria-label="First page"
+                  >
+                    «
+                  </button>
+                  <button
+                    onClick={() => { setPage(p => p - 1); setExpandedLog(null); }}
+                    disabled={page === 1}
+                    className="rounded px-2.5 py-1 text-xs text-navy-600 hover:bg-navy-100 disabled:opacity-30 disabled:cursor-not-allowed"
+                  >
+                    Prev
+                  </button>
+
+                  {/* Page number pills */}
+                  {Array.from({ length: totalPages }, (_, i) => i + 1)
+                    .filter(n => n === 1 || n === totalPages || Math.abs(n - page) <= 1)
+                    .reduce<(number | '…')[]>((acc, n, idx, arr) => {
+                      if (idx > 0 && n - (arr[idx - 1] as number) > 1) acc.push('…');
+                      acc.push(n);
+                      return acc;
+                    }, [])
+                    .map((n, i) =>
+                      n === '…' ? (
+                        <span key={`ellipsis-${i}`} className="px-1 text-xs text-navy-400">…</span>
+                      ) : (
+                        <button
+                          key={n}
+                          onClick={() => { setPage(n as number); setExpandedLog(null); }}
+                          className={`rounded px-2.5 py-1 text-xs font-medium ${
+                            page === n
+                              ? 'bg-navy-800 text-white'
+                              : 'text-navy-600 hover:bg-navy-100'
+                          }`}
+                        >
+                          {n}
+                        </button>
+                      )
+                    )}
+
+                  <button
+                    onClick={() => { setPage(p => p + 1); setExpandedLog(null); }}
+                    disabled={page === totalPages}
+                    className="rounded px-2.5 py-1 text-xs text-navy-600 hover:bg-navy-100 disabled:opacity-30 disabled:cursor-not-allowed"
+                  >
+                    Next
+                  </button>
+                  <button
+                    onClick={() => { setPage(totalPages); setExpandedLog(null); }}
+                    disabled={page === totalPages}
+                    className="rounded px-2 py-1 text-xs text-navy-600 hover:bg-navy-100 disabled:opacity-30 disabled:cursor-not-allowed"
+                    aria-label="Last page"
+                  >
+                    »
+                  </button>
+                </div>
+              </div>
+            )}
           </>
         )}
       </div>
@@ -666,10 +837,16 @@ function StatCard({ label, value, sub, accent, icon }: StatCardProps) {
 }
 
 function EventBadge({ type }: { type: string }) {
-  const isError = type === 'Error';
+  const styles: Record<string, { chip: string; dot: string }> = {
+    Start:   { chip: 'bg-sky-100 text-sky-700',         dot: 'bg-sky-500' },
+    Info:    { chip: 'bg-amber-100 text-amber-700',     dot: 'bg-amber-500' },
+    Success: { chip: 'bg-emerald-100 text-emerald-700', dot: 'bg-emerald-500' },
+    Failure: { chip: 'bg-red-100 text-red-700',         dot: 'bg-red-500' },
+  };
+  const s = styles[type] ?? { chip: 'bg-navy-100 text-navy-700', dot: 'bg-navy-400' };
   return (
-    <span className={`chip font-medium ${isError ? 'bg-red-100 text-red-700' : 'bg-emerald-100 text-emerald-700'}`}>
-      <span className={`h-1.5 w-1.5 rounded-full ${isError ? 'bg-red-500' : 'bg-emerald-500'}`} />
+    <span className={`chip font-medium ${s.chip}`}>
+      <span className={`h-1.5 w-1.5 rounded-full ${s.dot}`} />
       {type}
     </span>
   );
@@ -695,7 +872,7 @@ function LogDetailPanel({ log }: { log: Log }) {
     ['Auto Retry',    log.IsAutoRetry === '1' ? 'Yes' : 'No'],
     ['Active',        log.IsActive],
     ['Created By',    log.CreatedBy],
-    ['Created Date',  log.CreatedDate],
+    ['Created Date',  fmtTs(log.CreatedDate)],
     ['Modified By',   log.ModifiedBy === 'NULL' ? '—' : log.ModifiedBy],
     ['Modified Date', log.ModifiedDate === 'NULL' ? '—' : log.ModifiedDate],
   ];

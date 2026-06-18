@@ -7,6 +7,9 @@ import {
   type ReactNode,
 } from 'react';
 import type { User } from '../types';
+import { store } from '../store';
+import { clearCache as clearIntegrationsCache } from '../store/integrationsSlice';
+import { clearLogsCache } from '../store/logsSlice';
 
 interface AuthContextValue {
   user: User | null;
@@ -45,7 +48,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return true;
   };
 
-  const logout = () => setUser(null);
+  const logout = () => {
+    store.dispatch(clearIntegrationsCache());
+    store.dispatch(clearLogsCache());
+    setUser(null);
+  };
 
   const value = useMemo(() => ({ user, login, logout }), [user]);
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

@@ -3,7 +3,6 @@ import { Link, NavLink, Outlet, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { useAppDispatch } from '../store/hooks';
 import { fetchIntegrationsThunk } from '../store/integrationsSlice';
-import { fetchLogsThunk } from '../store/logsSlice';
 
 export default function Layout() {
   const { user, logout } = useAuth();
@@ -13,7 +12,6 @@ export default function Layout() {
 
   useEffect(() => {
     dispatch(fetchIntegrationsThunk());
-    dispatch(fetchLogsThunk());
   }, [dispatch]);
 
   const handleLogout = () => {
