@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react';
+import { useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { useAppDispatch, useAppSelector } from '../store/hooks';
 import { fetchIntegrationsThunk, addIntegrationThunk } from '../store/integrationsSlice';
@@ -16,11 +17,15 @@ const initialFilters: Filters = {
 };
 
 export default function IntegrationList() {
-  const dispatch = useAppDispatch();
+  const dispatch  = useAppDispatch();
+  const location  = useLocation();
   const { items: integrations, loading, error } = useAppSelector(s => s.integrations);
   const refetch = () => dispatch(fetchIntegrationsThunk());
   const { user } = useAuth();
-  const [filters, setFilters] = useState<Filters>(initialFilters);
+  const [filters, setFilters] = useState<Filters>(() => {
+    const nav = location.state as { category?: Filters['category'] } | null;
+    return nav?.category ? { ...initialFilters, category: nav.category } : initialFilters;
+  });
   const [showAddModal, setShowAddModal] = useState(false);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);

@@ -1,5 +1,5 @@
 import { BASEURL, USE_MOCK } from '../config';
-import type { Interface, Log } from '../types';
+import type { Interface, Log, InterfaceInsights } from '../types';
 import staticInterfaces from '../data/interfaces.json';
 import staticLogs from '../data/logs.json';
 
@@ -24,6 +24,33 @@ function mockEnvelope<T>(path: string): ApiEnvelope<T> {
       l => l.InterfaceID === interfaceID,
     );
     return { response: { results: filtered as unknown as T[] } };
+  }
+
+  if (path.startsWith('/getInsightsByInterfaceID/')) {
+    const interfaceID = decodeURIComponent(path.slice('/getInsightsByInterfaceID/'.length));
+    const ifLogs = (staticLogs as unknown as Log[]).filter(l => l.InterfaceID === interfaceID);
+    const txOutcomes: Record<string, string> = {};
+    for (const l of ifLogs) {
+      if (l.EventType === 'Success' || l.EventType === 'Failure') {
+        txOutcomes[l.TransactionID] = l.EventType;
+      }
+    }
+    const txVals  = Object.values(txOutcomes);
+    const total   = txVals.length;
+    const success = txVals.filter(v => v === 'Success').length;
+    const failure = total - success;
+    const sorted  = [...ifLogs].sort(
+      (a, b) => new Date(b.CreatedDate).getTime() - new Date(a.CreatedDate).getTime(),
+    );
+    const insights: InterfaceInsights = {
+      SuccessCount:        success,
+      FailureCount:        failure,
+      TotalTransactions:   total,
+      SuccessRate:         total > 0 ? Math.round((success / total) * 10000) / 100 : 0,
+      FailureRate:         total > 0 ? Math.round((failure / total) * 10000) / 100 : 0,
+      LastTransactionTime: sorted[0]?.CreatedDate ?? null,
+    };
+    return { response: { results: [insights] as unknown as T[] } };
   }
 
   return { response: { results: [] } };
@@ -84,4 +111,9 @@ export function fetchRecentLogs(): Promise<Log[]> {
 /** Fetch all logs for a specific interface — used by ProjectDetails. */
 export function fetchLogsByInterfaceID(interfaceID: string): Promise<Log[]> {
   return get<Log>(`/getLogsByInterfaceID/${encodeURIComponent(interfaceID)}`);
+}
+
+/** Fetch aggregated insights for a specific interface — used by ProjectDetails. */
+export function fetchInsightsByInterfaceID(interfaceID: string): Promise<InterfaceInsights[]> {
+  return get<InterfaceInsights>(`/getInsightsByInterfaceID/${encodeURIComponent(interfaceID)}`);
 }

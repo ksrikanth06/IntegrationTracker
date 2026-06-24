@@ -36,6 +36,9 @@ const fmtFilterLabel = (s: string) =>
 type EventFilter = 'ALL' | 'Start' | 'Info' | 'Success' | 'Failure';
 type TimeMode   = 'NONE' | 'AFTER' | 'BEFORE' | 'BETWEEN';
 
+// ── Feature flag — set true to re-enable the bar chart above the table ────────
+const SHOW_ACTIVITY_CHART = false as boolean;
+
 export default function LogsExplorer() {
   const dispatch = useAppDispatch();
   const { items: allLogs, loading, error } = useAppSelector(s => s.logs);
@@ -60,8 +63,11 @@ export default function LogsExplorer() {
   const [expandedLog, setExpandedLog]       = useState<string | null>(null);
   const [page, setPage]                     = useState(1);
   const PAGE_SIZE = 20;
+  const [ifTablePage, setIfTablePage]       = useState(1);
+  const IF_TABLE_PAGE_SIZE = 5;
 
   const ifDropdownRef = useRef<HTMLDivElement>(null);
+  const logsRef       = useRef<HTMLDivElement>(null);
   useEffect(() => {
     function onClickOutside(e: MouseEvent) {
       if (ifDropdownRef.current && !ifDropdownRef.current.contains(e.target as Node)) {
@@ -95,7 +101,7 @@ export default function LogsExplorer() {
     return m;
   }, [allInterfaces]);
 
-  // ── Bar chart: top 8 interfaces by volume ────────────────────────────────
+  // ── Bar chart: top 8 interfaces by log volume (event-level counts) ───────
   const chartData = useMemo(() => {
     const map: Record<string, { Start: number; Info: number; Success: number; Failure: number }> = {};
     for (const l of allLogs) {
@@ -108,6 +114,31 @@ export default function LogsExplorer() {
       .sort((a, b) => b.total - a.total)
       .slice(0, 8);
   }, [allLogs]);
+
+  // ── Breakdown table: transaction-level stats for all interfaces ───────────
+  const interfaceActivityData = useMemo(() => {
+    const ifTxMap: Record<string, Record<string, string>> = {};
+    for (const l of allLogs) {
+      if (l.EventType === 'Success' || l.EventType === 'Failure') {
+        if (!ifTxMap[l.InterfaceID]) ifTxMap[l.InterfaceID] = {};
+        ifTxMap[l.InterfaceID][l.TransactionID] = l.EventType;
+      }
+    }
+    return Object.entries(ifTxMap)
+      .map(([id, outcomes]) => {
+        const vals    = Object.values(outcomes);
+        const total   = vals.length;
+        const success = vals.filter(v => v === 'Success').length;
+        const failure = total - success;
+        return { id, total, success, failure };
+      })
+      .sort((a, b) => b.total - a.total);
+  }, [allLogs]);
+
+  const needsAttentionCount = useMemo(
+    () => interfaceActivityData.filter(r => r.total > 0 && (r.success / r.total) * 100 < 80).length,
+    [interfaceActivityData],
+  );
 
   // ── Interface options for the multi-select ────────────────────────────────
   const interfaceOptions = useMemo(() =>
@@ -157,8 +188,14 @@ export default function LogsExplorer() {
     });
   }, [allLogs, selectedIfIds, eventFilter, keyword, txnFilter, timeMode, timeAfter, timeBefore]);
 
-  const totalPages = Math.max(1, Math.ceil(filteredLogs.length / PAGE_SIZE));
-  const pagedLogs  = filteredLogs.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
+  const totalPages       = Math.max(1, Math.ceil(filteredLogs.length / PAGE_SIZE));
+  const pagedLogs        = filteredLogs.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
+
+  const ifTableTotalPages = Math.max(1, Math.ceil(interfaceActivityData.length / IF_TABLE_PAGE_SIZE));
+  const pagedIfData       = interfaceActivityData.slice(
+    (ifTablePage - 1) * IF_TABLE_PAGE_SIZE,
+    ifTablePage * IF_TABLE_PAGE_SIZE,
+  );
 
   const hasActiveFilters =
     selectedIfIds.size > 0 || keyword !== '' || txnFilter !== '' || eventFilter !== 'ALL' || timeMode !== 'NONE';
@@ -166,6 +203,24 @@ export default function LogsExplorer() {
   const successRate = stats.totalTxns > 0
     ? ((stats.success / stats.totalTxns) * 100).toFixed(1)
     : '0';
+
+  function exportToCSV() {
+    const headers = ['Log ID','Interface ID','Transaction ID','Event Type','Service','Server','Message','Error Type','Created Date'];
+    const esc = (v: string) => `"${(v ?? '').replace(/"/g, '""')}"`;
+    const rows = filteredLogs.map(l => [
+      l.ID, l.InterfaceID, l.TransactionID, l.EventType,
+      l.ServiceName, l.ServerName, l.LogMessage,
+      l.ErrorType === 'NULL' ? '' : l.ErrorType, l.CreatedDate,
+    ].map(String).map(esc).join(','));
+    const csv  = [headers.map(esc).join(','), ...rows].join('\n');
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const url  = URL.createObjectURL(blob);
+    const a    = document.createElement('a');
+    a.href     = url;
+    a.download = `logs-${new Date().toISOString().slice(0, 10)}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }
 
   function clearAllFilters() {
     setSelectedIfIds(new Set());
@@ -226,20 +281,31 @@ export default function LogsExplorer() {
         </button>
       </div>
 
-      {/* ── 4 Stat cards ────────────────────────────────────────────────── */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+      {/* ── Stat cards ──────────────────────────────────────────────────── */}
+      <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
         <StatCard label="Total Events" value={stats.total} sub="All log entries"
           accent="#0E4F8A" icon={<IconLogs />} />
         <StatCard label="Successful Txns" value={stats.success} sub={`${successRate}% of completed transactions`}
           accent="#10b981" icon={<IconCheck />} />
         <StatCard label="Failed Txns" value={stats.failures}
           sub={`${stats.totalTxns > 0 ? ((stats.failures / stats.totalTxns) * 100).toFixed(1) : 0}% of completed transactions`}
-          accent="#ef4444" icon={<IconAlert />} />
+          accent="#ef4444" icon={<IconAlert />}
+          onClick={() => {
+            setEventFilter('Failure');
+            logsRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+          }} />
         <StatCard label="Interfaces" value={stats.interfaces} sub="Unique interfaces"
           accent="#8b5cf6" icon={<IconNetwork />} />
+        <StatCard
+          label="Needs Attention"
+          value={needsAttentionCount}
+          sub={needsAttentionCount === 0 ? 'All interfaces healthy' : `interface${needsAttentionCount > 1 ? 's' : ''} below 80%`}
+          accent={needsAttentionCount === 0 ? '#10b981' : '#f59e0b'}
+          icon={<IconAlert />}
+        />
       </div>
 
-      {/* ── Activity bar chart ───────────────────────────────────────────── */}
+      {/* ── Activity by interface ────────────────────────────────────────── */}
       {chartData.length > 0 && (
         <div className="card p-6">
           <div className="flex items-baseline justify-between mb-4">
@@ -248,43 +314,220 @@ export default function LogsExplorer() {
               Top {chartData.length} by volume
             </span>
           </div>
-          <ResponsiveContainer width="100%" height={220}>
-            <BarChart data={chartData} margin={{ top: 4, right: 12, bottom: 0, left: -10 }}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" vertical={false} />
-              <XAxis dataKey="id" tick={{ fontSize: 11, fill: '#64748b' }} axisLine={false} tickLine={false} />
-              <YAxis tick={{ fontSize: 11, fill: '#64748b' }} axisLine={false} tickLine={false} allowDecimals={false} />
-              <Tooltip
-                formatter={(value: number, name: string) => [value, name.charAt(0).toUpperCase() + name.slice(1)]}
-                labelFormatter={(label: string) => nameMap[label] || label}
-                contentStyle={{ fontSize: 12, borderRadius: 8, border: '1px solid #e2e8f0', boxShadow: '0 4px 6px -1px rgb(0 0 0 / .1)' }}
-                cursor={{ fill: '#f1f5f9' }}
-              />
-              <Legend formatter={(v) => (
-                <span style={{ fontSize: 12, color: '#475569' }}>{v.charAt(0).toUpperCase() + v.slice(1)}</span>
-              )} />
-              <Bar dataKey="Start"   stackId="a" fill="#0ea5e9" />
-              <Bar dataKey="Info"    stackId="a" fill="#f59e0b" />
-              <Bar dataKey="Success" stackId="a" fill="#10b981" />
-              <Bar dataKey="Failure" stackId="a" fill="#ef4444" radius={[4, 4, 0, 0]} />
-            </BarChart>
-          </ResponsiveContainer>
+
+          {/* Bar chart — re-enable by setting SHOW_ACTIVITY_CHART = true */}
+          {SHOW_ACTIVITY_CHART && (
+            <div className="mb-6">
+              <ResponsiveContainer width="100%" height={220}>
+                <BarChart data={chartData} margin={{ top: 4, right: 12, bottom: 0, left: -10 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" vertical={false} />
+                  <XAxis dataKey="id" tick={{ fontSize: 11, fill: '#64748b' }} axisLine={false} tickLine={false} />
+                  <YAxis tick={{ fontSize: 11, fill: '#64748b' }} axisLine={false} tickLine={false} allowDecimals={false} />
+                  <Tooltip
+                    formatter={(value: number, name: string) => [value, name.charAt(0).toUpperCase() + name.slice(1)]}
+                    labelFormatter={(label: string) => nameMap[label] || label}
+                    contentStyle={{ fontSize: 12, borderRadius: 8, border: '1px solid #e2e8f0', boxShadow: '0 4px 6px -1px rgb(0 0 0 / .1)' }}
+                    cursor={{ fill: '#f1f5f9' }}
+                  />
+                  <Legend formatter={(v) => (
+                    <span style={{ fontSize: 12, color: '#475569' }}>{v.charAt(0).toUpperCase() + v.slice(1)}</span>
+                  )} />
+                  <Bar dataKey="Start"   stackId="a" fill="#0ea5e9" />
+                  <Bar dataKey="Info"    stackId="a" fill="#f59e0b" />
+                  <Bar dataKey="Success" stackId="a" fill="#10b981" />
+                  <Bar dataKey="Failure" stackId="a" fill="#ef4444" radius={[4, 4, 0, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+          )}
+
+          {/* ── Activity detail table ──────────────────────────────────── */}
+          <div className={SHOW_ACTIVITY_CHART ? 'border-t border-navy-100 pt-4' : ''}>
+            <div className="flex items-baseline justify-between mb-3">
+              <h3 className="font-display text-sm font-semibold text-navy-700">
+                Interface breakdown
+              </h3>
+              <span className="text-[10px] uppercase tracking-wider text-navy-400">
+                {interfaceActivityData.length} interfaces · sorted by volume
+              </span>
+            </div>
+            <div className="overflow-x-auto rounded-lg border border-navy-100">
+              <table className="min-w-full divide-y divide-navy-100 text-xs">
+                <thead className="bg-navy-50">
+                  <tr>
+                    <th className="px-4 py-2.5 text-left font-semibold uppercase tracking-wider text-navy-500">#</th>
+                    <th className="px-4 py-2.5 text-left font-semibold uppercase tracking-wider text-navy-500">Interface</th>
+                    <th className="px-4 py-2.5 text-right font-semibold uppercase tracking-wider text-navy-500">Total Transactions</th>
+                    <th className="px-4 py-2.5 text-right font-semibold uppercase tracking-wider text-emerald-600">Successful</th>
+                    <th className="px-4 py-2.5 text-right font-semibold uppercase tracking-wider text-red-500">Failed</th>
+                    <th className="px-4 py-2.5 text-right font-semibold uppercase tracking-wider text-navy-500">Success Rate</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-navy-100 bg-white">
+                  {pagedIfData.map((row, idx) => {
+                    const successRate = row.total > 0 ? (row.success / row.total) * 100 : null;
+                    const name        = nameMap[row.id];
+                    const globalRank  = (ifTablePage - 1) * IF_TABLE_PAGE_SIZE + idx + 1;
+                    return (
+                      <tr
+                        key={row.id}
+                        className="hover:bg-rail/5 cursor-pointer transition-colors group"
+                        title="Click to filter logs for this interface"
+                        onClick={() => {
+                          setSelectedIfIds(new Set([row.id]));
+                          logsRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                        }}
+                      >
+                        <td className="px-4 py-2.5 text-navy-400 tabular-nums font-medium">
+                          {globalRank}
+                        </td>
+                        <td className="px-4 py-2.5">
+                          <div className="flex items-center gap-2">
+                            <div>
+                              <Link
+                                to={`/projects/${encodeURIComponent(row.id)}`}
+                                onClick={e => e.stopPropagation()}
+                                className="font-mono text-rail hover:underline"
+                              >
+                                {row.id}
+                              </Link>
+                              {name && name !== row.id && (
+                                <p className="text-navy-500 truncate max-w-[200px] mt-0.5">{name}</p>
+                              )}
+                            </div>
+                            <svg className="h-3.5 w-3.5 text-navy-300 opacity-0 group-hover:opacity-100 transition-opacity shrink-0" viewBox="0 0 20 20" fill="currentColor">
+                              <path fillRule="evenodd" d="M2.628 1.601C5.028 1.206 7.49 1 10 1s4.973.206 7.372.601a.75.75 0 0 1 .628.74v2.288a2.25 2.25 0 0 1-.659 1.59l-4.682 4.683a2.25 2.25 0 0 0-.659 1.59v3.037c0 .684-.31 1.33-.844 1.757l-1.937 1.55A.75.75 0 0 1 8 18.25v-5.757a2.25 2.25 0 0 0-.659-1.591L2.659 6.22A2.25 2.25 0 0 1 2 4.629V2.34a.75.75 0 0 1 .628-.74Z" clipRule="evenodd" />
+                            </svg>
+                          </div>
+                        </td>
+                        <td className="px-4 py-2.5 text-right tabular-nums text-navy-700 font-semibold">
+                          {row.total.toLocaleString()}
+                        </td>
+                        <td className="px-4 py-2.5 text-right tabular-nums text-emerald-700 font-medium">
+                          {row.success.toLocaleString()}
+                        </td>
+                        <td className="px-4 py-2.5 text-right tabular-nums text-red-600 font-medium">
+                          {row.failure.toLocaleString()}
+                        </td>
+                        <td className="px-4 py-2.5 text-right">
+                          {successRate !== null ? (
+                            <div className="inline-flex flex-col items-end gap-1">
+                              <span className={`inline-flex items-center gap-1 font-semibold ${
+                                successRate >= 80 ? 'text-emerald-700' :
+                                successRate >= 50 ? 'text-amber-700'   : 'text-red-600'
+                              }`}>
+                                <span className={`h-1.5 w-1.5 rounded-full ${
+                                  successRate >= 80 ? 'bg-emerald-500' :
+                                  successRate >= 50 ? 'bg-amber-500'   : 'bg-red-500'
+                                }`} />
+                                {successRate.toFixed(1)}%
+                              </span>
+                              {successRate < 80 && (
+                                <span className="inline-flex items-center gap-1 rounded-full bg-red-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-red-700">
+                                  <svg className="h-2.5 w-2.5" viewBox="0 0 20 20" fill="currentColor">
+                                    <path fillRule="evenodd" d="M8.485 2.495c.673-1.167 2.357-1.167 3.03 0l6.28 10.875c.673 1.167-.17 2.625-1.516 2.625H3.72c-1.347 0-2.189-1.458-1.515-2.625L8.485 2.495ZM10 5a.75.75 0 0 1 .75.75v3.5a.75.75 0 0 1-1.5 0v-3.5A.75.75 0 0 1 10 5Zm0 9a1 1 0 1 0 0-2 1 1 0 0 0 0 2Z" clipRule="evenodd" />
+                                  </svg>
+                                  Needs Attention
+                                </span>
+                              )}
+                            </div>
+                          ) : (
+                            <span className="text-navy-400">—</span>
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+
+            {/* Table pagination */}
+            {ifTableTotalPages > 1 && (
+              <div className="flex items-center justify-between pt-3 mt-1">
+                <span className="text-[10px] text-navy-500">
+                  Page <span className="font-semibold text-navy-700">{ifTablePage}</span> of{' '}
+                  <span className="font-semibold text-navy-700">{ifTableTotalPages}</span>
+                  {' · '}
+                  <span className="font-semibold text-navy-700">{interfaceActivityData.length}</span> interfaces
+                </span>
+                <div className="flex items-center gap-1">
+                  <button
+                    onClick={() => setIfTablePage(1)}
+                    disabled={ifTablePage === 1}
+                    className="rounded px-2 py-1 text-xs text-navy-600 hover:bg-navy-100 disabled:opacity-30 disabled:cursor-not-allowed"
+                  >«</button>
+                  <button
+                    onClick={() => setIfTablePage(p => p - 1)}
+                    disabled={ifTablePage === 1}
+                    className="rounded px-2.5 py-1 text-xs text-navy-600 hover:bg-navy-100 disabled:opacity-30 disabled:cursor-not-allowed"
+                  >Prev</button>
+
+                  {Array.from({ length: ifTableTotalPages }, (_, i) => i + 1)
+                    .filter(n => n === 1 || n === ifTableTotalPages || Math.abs(n - ifTablePage) <= 1)
+                    .reduce<(number | '…')[]>((acc, n, i, arr) => {
+                      if (i > 0 && n - (arr[i - 1] as number) > 1) acc.push('…');
+                      acc.push(n);
+                      return acc;
+                    }, [])
+                    .map((n, i) =>
+                      n === '…' ? (
+                        <span key={`e-${i}`} className="px-1 text-xs text-navy-400">…</span>
+                      ) : (
+                        <button
+                          key={n}
+                          onClick={() => setIfTablePage(n as number)}
+                          className={`rounded px-2.5 py-1 text-xs font-medium ${
+                            ifTablePage === n ? 'bg-navy-800 text-white' : 'text-navy-600 hover:bg-navy-100'
+                          }`}
+                        >{n}</button>
+                      )
+                    )}
+
+                  <button
+                    onClick={() => setIfTablePage(p => p + 1)}
+                    disabled={ifTablePage === ifTableTotalPages}
+                    className="rounded px-2.5 py-1 text-xs text-navy-600 hover:bg-navy-100 disabled:opacity-30 disabled:cursor-not-allowed"
+                  >Next</button>
+                  <button
+                    onClick={() => setIfTablePage(ifTableTotalPages)}
+                    disabled={ifTablePage === ifTableTotalPages}
+                    className="rounded px-2 py-1 text-xs text-navy-600 hover:bg-navy-100 disabled:opacity-30 disabled:cursor-not-allowed"
+                  >»</button>
+                </div>
+              </div>
+            )}
+          </div>
         </div>
       )}
 
       {/* ── Browse / Filter + Results ────────────────────────────────────── */}
-      <div className="card overflow-visible">
+      <div ref={logsRef} className="card overflow-visible">
 
         {/* Panel header */}
         <div className="px-6 py-4 border-b border-navy-100 flex items-center justify-between">
           <h2 className="font-display text-lg font-semibold text-navy-900">Browse Logs</h2>
-          {hasActiveFilters && (
-            <button onClick={clearAllFilters} className="btn-ghost text-xs gap-1.5">
+          <div className="flex items-center gap-2">
+            <button
+              onClick={exportToCSV}
+              disabled={filteredLogs.length === 0}
+              className="btn-ghost text-xs gap-1.5 disabled:opacity-40"
+              title="Download filtered logs as CSV"
+            >
               <svg className="h-3.5 w-3.5" viewBox="0 0 20 20" fill="currentColor">
-                <path d="M6.28 5.22a.75.75 0 0 0-1.06 1.06L8.94 10l-3.72 3.72a.75.75 0 1 0 1.06 1.06L10 11.06l3.72 3.72a.75.75 0 1 0 1.06-1.06L11.06 10l3.72-3.72a.75.75 0 0 0-1.06-1.06L10 8.94 6.28 5.22Z" />
+                <path fillRule="evenodd" d="M10 3a.75.75 0 0 1 .75.75v7.69l1.72-1.72a.75.75 0 1 1 1.06 1.06l-3 3a.75.75 0 0 1-1.06 0l-3-3a.75.75 0 1 1 1.06-1.06l1.72 1.72V3.75A.75.75 0 0 1 10 3ZM3.75 15a.75.75 0 0 0 0 1.5h12.5a.75.75 0 0 0 0-1.5H3.75Z" clipRule="evenodd" />
               </svg>
-              Clear all
+              Export CSV
             </button>
-          )}
+            {hasActiveFilters && (
+              <button onClick={clearAllFilters} className="btn-ghost text-xs gap-1.5">
+                <svg className="h-3.5 w-3.5" viewBox="0 0 20 20" fill="currentColor">
+                  <path d="M6.28 5.22a.75.75 0 0 0-1.06 1.06L8.94 10l-3.72 3.72a.75.75 0 1 0 1.06 1.06L10 11.06l3.72 3.72a.75.75 0 1 0 1.06-1.06L11.06 10l3.72-3.72a.75.75 0 0 0-1.06-1.06L10 8.94 6.28 5.22Z" />
+                </svg>
+                Clear all
+              </button>
+            )}
+          </div>
         </div>
 
         {/* Filter controls */}
@@ -460,6 +703,32 @@ export default function LogsExplorer() {
                 <option value="BEFORE">Before</option>
                 <option value="BETWEEN">Between</option>
               </select>
+            </div>
+
+            {/* Quick presets */}
+            <div>
+              <label className="block text-xs font-medium uppercase tracking-wider text-navy-600 mb-1.5">
+                Quick preset
+              </label>
+              <div className="flex gap-1.5">
+                {([['1h', 60*60*1000], ['6h', 6*60*60*1000], ['24h', 24*60*60*1000], ['7d', 7*24*60*60*1000]] as [string, number][]).map(([label, ms]) => (
+                  <button
+                    key={label}
+                    type="button"
+                    onClick={() => {
+                      const d = new Date(Date.now() - ms);
+                      const pad = (n: number) => n.toString().padStart(2, '0');
+                      const local = `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+                      setTimeMode('AFTER');
+                      setTimeAfter(local);
+                      setTimeBefore('');
+                    }}
+                    className="rounded border border-navy-200 bg-white px-2.5 py-1.5 text-xs font-medium text-navy-600 hover:bg-navy-50 hover:border-navy-300 transition-colors"
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
             </div>
 
             {(timeMode === 'AFTER' || timeMode === 'BETWEEN') && (
@@ -816,10 +1085,16 @@ export default function LogsExplorer() {
 
 interface StatCardProps {
   label: string; value: number; sub: string; accent: string; icon: React.ReactNode;
+  onClick?: () => void;
 }
-function StatCard({ label, value, sub, accent, icon }: StatCardProps) {
+function StatCard({ label, value, sub, accent, icon, onClick }: StatCardProps) {
   return (
-    <div className="card p-5 relative overflow-hidden">
+    <div
+      className={`card p-5 relative overflow-hidden transition-shadow ${
+        onClick ? 'cursor-pointer hover:shadow-md hover:-translate-y-0.5 transition-transform' : ''
+      }`}
+      onClick={onClick}
+    >
       <div className="absolute left-0 top-0 h-full w-1 rounded-l" style={{ backgroundColor: accent }} />
       <div className="flex items-start justify-between gap-2 pl-2">
         <div className="min-w-0">
@@ -853,28 +1128,37 @@ function EventBadge({ type }: { type: string }) {
 }
 
 function LogDetailPanel({ log }: { log: Log }) {
+  const [copiedField, setCopiedField] = useState<string | null>(null);
+
+  function copyField(label: string, value: string) {
+    navigator.clipboard.writeText(value).then(() => {
+      setCopiedField(label);
+      setTimeout(() => setCopiedField(null), 2000);
+    });
+  }
+
   const fmt = (raw: string) => {
     if (!raw || raw === 'NULL') return null;
     try { return JSON.stringify(JSON.parse(raw), null, 2); }
     catch { return raw; }
   };
 
-  const fields: [string, string, boolean?][] = [
-    ['Log ID',        log.ID],
-    ['Interface ID',  log.InterfaceID],
-    ['Transaction ID', log.TransactionID, true],
-    ['Event Type',    log.EventType],
-    ['Error Type',    log.ErrorType === 'NULL' ? '—' : log.ErrorType],
-    ['Service',       log.ServiceName, true],
-    ['Server',        log.ServerName],
-    ['Message',       log.LogMessage],
-    ['Display Order', log.DisplayOrder],
-    ['Auto Retry',    log.IsAutoRetry === '1' ? 'Yes' : 'No'],
-    ['Active',        log.IsActive],
-    ['Created By',    log.CreatedBy],
-    ['Created Date',  fmtTs(log.CreatedDate)],
-    ['Modified By',   log.ModifiedBy === 'NULL' ? '—' : log.ModifiedBy],
-    ['Modified Date', log.ModifiedDate === 'NULL' ? '—' : log.ModifiedDate],
+  const fields: [string, string, boolean?, boolean?][] = [
+    ['Log ID',         log.ID,           false, true],
+    ['Interface ID',   log.InterfaceID],
+    ['Transaction ID', log.TransactionID, true,  true],
+    ['Event Type',     log.EventType],
+    ['Error Type',     log.ErrorType === 'NULL' ? '—' : log.ErrorType],
+    ['Service',        log.ServiceName,   true],
+    ['Server',         log.ServerName],
+    ['Message',        log.LogMessage],
+    ['Display Order',  log.DisplayOrder],
+    ['Auto Retry',     log.IsAutoRetry === '1' ? 'Yes' : 'No'],
+    ['Active',         log.IsActive],
+    ['Created By',     log.CreatedBy],
+    ['Created Date',   fmtTs(log.CreatedDate)],
+    ['Modified By',    log.ModifiedBy === 'NULL' ? '—' : log.ModifiedBy],
+    ['Modified Date',  log.ModifiedDate === 'NULL' ? '—' : log.ModifiedDate],
   ];
 
   const requestPayload  = fmt(log.RequestPayload);
@@ -884,7 +1168,7 @@ function LogDetailPanel({ log }: { log: Log }) {
   return (
     <div className="space-y-4">
       <div className="rounded-md border border-navy-200 overflow-hidden">
-        {fields.map(([label, value, mono], idx) => (
+        {fields.map(([label, value, mono, copyable], idx) => (
           <div
             key={label}
             className={`grid grid-cols-[160px_1fr] gap-4 px-4 py-2 text-xs ${
@@ -892,7 +1176,27 @@ function LogDetailPanel({ log }: { log: Log }) {
             }`}
           >
             <span className="font-semibold uppercase tracking-wider text-navy-500 shrink-0">{label}</span>
-            <span className={`text-navy-800 break-all ${mono ? 'font-mono' : ''}`}>{value || '—'}</span>
+            <div className="flex items-start gap-2 min-w-0">
+              <span className={`text-navy-800 break-all flex-1 ${mono ? 'font-mono' : ''}`}>{value || '—'}</span>
+              {copyable && value && value !== '—' && (
+                <button
+                  onClick={e => { e.stopPropagation(); copyField(label, value); }}
+                  className="shrink-0 rounded p-0.5 text-navy-400 hover:text-navy-700 hover:bg-navy-100 transition-colors"
+                  title="Copy to clipboard"
+                >
+                  {copiedField === label ? (
+                    <svg className="h-3.5 w-3.5 text-emerald-500" viewBox="0 0 20 20" fill="currentColor">
+                      <path fillRule="evenodd" d="M16.704 4.153a.75.75 0 0 1 .143 1.052l-8 10.5a.75.75 0 0 1-1.127.075l-4.5-4.5a.75.75 0 0 1 1.06-1.06l3.894 3.893 7.48-9.817a.75.75 0 0 1 1.05-.143Z" clipRule="evenodd" />
+                    </svg>
+                  ) : (
+                    <svg className="h-3.5 w-3.5" viewBox="0 0 20 20" fill="currentColor">
+                      <path d="M7 3.5A1.5 1.5 0 0 1 8.5 2h3.879a1.5 1.5 0 0 1 1.06.44l3.122 3.12A1.5 1.5 0 0 1 17 6.622V12.5a1.5 1.5 0 0 1-1.5 1.5h-1v-3.379a3 3 0 0 0-.879-2.121L10.5 5.379A3 3 0 0 0 8.379 4.5H7v-1Z" />
+                      <path d="M4.5 6A1.5 1.5 0 0 0 3 7.5v9A1.5 1.5 0 0 0 4.5 18h7a1.5 1.5 0 0 0 1.5-1.5v-5.879a1.5 1.5 0 0 0-.44-1.06L9.44 6.439A1.5 1.5 0 0 0 8.378 6H4.5Z" />
+                    </svg>
+                  )}
+                </button>
+              )}
+            </div>
           </div>
         ))}
       </div>

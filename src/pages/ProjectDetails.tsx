@@ -1,9 +1,10 @@
 import { useMemo, useState, useEffect } from 'react';
 import { Link, useParams, useNavigate } from 'react-router-dom';
 import data from '../data/interfaces.json';
-import type { Interface, Log } from '../types';
+import type { Interface, Log, InterfaceInsights } from '../types';
 import { useAppDispatch, useAppSelector } from '../store/hooks';
 import { fetchLogsByInterfaceIDThunk, syncLogsByInterfaceIDThunk } from '../store/logsSlice';
+import { fetchInsightsByInterfaceID } from '../services/api';
 import { getCategoryBg, formatDateTime, getCategory } from '../lib/utils';
 
 type EventFilter = 'ALL' | 'Start' | 'Info' | 'Success' | 'Failure';
@@ -41,6 +42,24 @@ export default function ProjectDetails() {
   }, [dispatch, decodedId]);
 
   const refetchLogs = () => dispatch(syncLogsByInterfaceIDThunk(decodedId));
+
+  const [insights, setInsights]               = useState<InterfaceInsights | null>(null);
+  const [insightsLoading, setInsightsLoading] = useState(false);
+  const [insightsError, setInsightsError]     = useState<string | null>(null);
+
+  useEffect(() => {
+    setInsightsLoading(true);
+    setInsightsError(null);
+    fetchInsightsByInterfaceID(decodedId)
+      .then(results => {
+        setInsights(results[0] ?? null);
+        setInsightsLoading(false);
+      })
+      .catch(err => {
+        setInsightsError(err.message);
+        setInsightsLoading(false);
+      });
+  }, [decodedId]);
   const [expandedLog, setExpandedLog]       = useState<string | null>(null);
   const [logSearch, setLogSearch]           = useState('');
   const [txnFilter, setTxnFilter]           = useState('');
@@ -49,6 +68,8 @@ export default function ProjectDetails() {
   const [timeMode, setTimeMode]             = useState<TimeMode>('NONE');
   const [timeAfter, setTimeAfter]           = useState('');
   const [timeBefore, setTimeBefore]         = useState('');
+  const [page, setPage]                     = useState(1);
+  const PAGE_SIZE = 20;
 
   const item = useMemo(
     () => interfaces.find(i => i.InterfaceID === decodedId),
@@ -89,6 +110,33 @@ export default function ProjectDetails() {
     logSearch !== '' || txnFilter !== '' || logEventFilter !== 'ALL' ||
     logServerFilter !== 'ALL' || timeMode !== 'NONE';
 
+  // Reset to page 1 whenever any filter changes
+  useEffect(() => {
+    setPage(1);
+    setExpandedLog(null);
+  }, [logSearch, txnFilter, logEventFilter, logServerFilter, timeMode, timeAfter, timeBefore]);
+
+  const totalPages = Math.max(1, Math.ceil(filteredLogs.length / PAGE_SIZE));
+  const pagedLogs  = filteredLogs.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
+
+  function exportToCSV() {
+    const headers = ['Log ID','Interface ID','Transaction ID','Event Type','Service','Server','Message','Error Type','Created Date'];
+    const esc = (v: string) => `"${(v ?? '').replace(/"/g, '""')}"`;
+    const rows = filteredLogs.map(l => [
+      l.ID, l.InterfaceID, l.TransactionID, l.EventType,
+      l.ServiceName, l.ServerName, l.LogMessage,
+      l.ErrorType === 'NULL' ? '' : l.ErrorType, l.CreatedDate,
+    ].map(String).map(esc).join(','));
+    const csv  = [headers.map(esc).join(','), ...rows].join('\n');
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const url  = URL.createObjectURL(blob);
+    const a    = document.createElement('a');
+    a.href     = url;
+    a.download = `logs-${decodedId}-${new Date().toISOString().slice(0, 10)}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
   const clearLogFilters = () => {
     setLogSearch('');
     setTxnFilter('');
@@ -97,6 +145,7 @@ export default function ProjectDetails() {
     setTimeMode('NONE');
     setTimeAfter('');
     setTimeBefore('');
+    setPage(1);
   };
 
   if (!item) {
@@ -244,6 +293,98 @@ export default function ProjectDetails() {
         </Section>
       </div>
 
+      {/* Insights */}
+      <div className="card p-6">
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="font-display text-lg font-semibold text-navy-900">Insights</h2>
+          {insightsError && (
+            <span className="text-xs text-red-500">{insightsError}</span>
+          )}
+        </div>
+
+        {insightsLoading ? (
+          <div className="flex items-center justify-center py-8">
+            <span className="h-5 w-5 animate-spin rounded-full border-2 border-navy-200 border-t-rail" />
+          </div>
+        ) : insights ? (
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+            {/* Total Transactions */}
+            <div className="rounded-xl border border-navy-100 bg-navy-50 p-4 relative overflow-hidden">
+              <div className="absolute left-0 top-0 h-full w-1 rounded-l bg-navy-400" />
+              <div className="pl-2">
+                <p className="text-xs font-semibold uppercase tracking-wider text-navy-500 mb-1">
+                  Total Transactions
+                </p>
+                <p className="font-display text-3xl font-bold text-navy-900 tabular-nums">
+                  {insights.TotalTransactions.toLocaleString()}
+                </p>
+                <p className="mt-1 text-xs text-navy-500">Completed transactions</p>
+              </div>
+            </div>
+
+            {/* Succeeded */}
+            <div className="rounded-xl border border-emerald-100 bg-emerald-50 p-4 relative overflow-hidden">
+              <div className="absolute left-0 top-0 h-full w-1 rounded-l bg-emerald-500" />
+              <div className="pl-2">
+                <p className="text-xs font-semibold uppercase tracking-wider text-emerald-600 mb-1">
+                  Succeeded
+                </p>
+                <p className="font-display text-3xl font-bold text-emerald-700 tabular-nums">
+                  {insights.SuccessCount.toLocaleString()}
+                </p>
+                <p className="mt-1 text-xs text-emerald-600 font-medium">
+                  {insights.SuccessRate.toFixed(2)}% success rate
+                </p>
+              </div>
+            </div>
+
+            {/* Failed */}
+            <div className="rounded-xl border border-red-100 bg-red-50 p-4 relative overflow-hidden">
+              <div className="absolute left-0 top-0 h-full w-1 rounded-l bg-red-500" />
+              <div className="pl-2">
+                <p className="text-xs font-semibold uppercase tracking-wider text-red-500 mb-1">
+                  Failed
+                </p>
+                <p className="font-display text-3xl font-bold text-red-600 tabular-nums">
+                  {insights.FailureCount.toLocaleString()}
+                </p>
+                <p className="mt-1 text-xs text-red-500 font-medium">
+                  {insights.FailureRate.toFixed(2)}% failure rate
+                </p>
+              </div>
+            </div>
+
+            {/* Last Transaction */}
+            <div className="rounded-xl border border-purple-100 bg-purple-50 p-4 relative overflow-hidden">
+              <div className="absolute left-0 top-0 h-full w-1 rounded-l bg-purple-400" />
+              <div className="pl-2">
+                <p className="text-xs font-semibold uppercase tracking-wider text-purple-500 mb-1">
+                  Last Transaction
+                </p>
+                {insights.LastTransactionTime ? (
+                  <>
+                    <p className="font-display text-base font-bold text-purple-800 leading-tight">
+                      {new Date(insights.LastTransactionTime).toLocaleDateString(undefined, {
+                        month: 'short', day: 'numeric', year: 'numeric',
+                      })}
+                    </p>
+                    <p className="mt-1 text-xs text-purple-600 font-mono">
+                      {new Date(insights.LastTransactionTime).toLocaleTimeString(undefined, {
+                        hour: '2-digit', minute: '2-digit', second: '2-digit',
+                      })}
+                    </p>
+                  </>
+                ) : (
+                  <p className="font-display text-base font-bold text-purple-400">—</p>
+                )}
+              </div>
+            </div>
+          </div>
+        ) : (
+          <p className="text-sm text-navy-500 text-center py-6">No insights available</p>
+        )}
+      </div>
+
       {/* Logs */}
       <div className="card overflow-hidden">
         {logsLoading && (
@@ -286,6 +427,17 @@ export default function ProjectDetails() {
                 <path fillRule="evenodd" d="M15.312 11.424a5.5 5.5 0 0 1-9.201 2.466l-.312-.311h2.433a.75.75 0 0 0 0-1.5H3.989a.75.75 0 0 0-.75.75v4.242a.75.75 0 0 0 1.5 0v-2.43l.31.31a7 7 0 0 0 11.712-3.138.75.75 0 0 0-1.449-.39Zm1.23-3.723a.75.75 0 0 0 .219-.53V2.929a.75.75 0 0 0-1.5 0V5.36l-.31-.31A7 7 0 0 0 3.239 8.188a.75.75 0 1 0 1.448.389A5.5 5.5 0 0 1 13.89 6.11l.311.31h-2.432a.75.75 0 0 0 0 1.5h4.243a.75.75 0 0 0 .53-.219Z" clipRule="evenodd" />
               </svg>
               {logsLoading ? 'Syncing…' : 'Sync'}
+            </button>
+            <button
+              onClick={exportToCSV}
+              disabled={filteredLogs.length === 0}
+              className="inline-flex items-center gap-1.5 rounded-full border border-navy-200 bg-white px-3 py-1.5 text-xs font-medium text-navy-600 hover:bg-navy-50 disabled:opacity-40 transition-colors"
+              title="Download filtered logs as CSV"
+            >
+              <svg className="h-3.5 w-3.5" viewBox="0 0 20 20" fill="currentColor">
+                <path fillRule="evenodd" d="M10 3a.75.75 0 0 1 .75.75v7.69l1.72-1.72a.75.75 0 1 1 1.06 1.06l-3 3a.75.75 0 0 1-1.06 0l-3-3a.75.75 0 1 1 1.06-1.06l1.72 1.72V3.75A.75.75 0 0 1 10 3ZM3.75 15a.75.75 0 0 0 0 1.5h12.5a.75.75 0 0 0 0-1.5H3.75Z" clipRule="evenodd" />
+              </svg>
+              Export CSV
             </button>
           </div>
           {logs.length > 0 && (
@@ -414,6 +566,32 @@ export default function ProjectDetails() {
                   <option value="BEFORE">Before</option>
                   <option value="BETWEEN">Between</option>
                 </select>
+              </div>
+
+              {/* Quick presets */}
+              <div>
+                <label className="block text-xs font-medium uppercase tracking-wider text-navy-600 mb-1.5">
+                  Quick preset
+                </label>
+                <div className="flex gap-1.5">
+                  {([['1h', 60*60*1000], ['6h', 6*60*60*1000], ['24h', 24*60*60*1000], ['7d', 7*24*60*60*1000]] as [string, number][]).map(([label, ms]) => (
+                    <button
+                      key={label}
+                      type="button"
+                      onClick={() => {
+                        const d = new Date(Date.now() - ms);
+                        const pad = (n: number) => n.toString().padStart(2, '0');
+                        const local = `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+                        setTimeMode('AFTER');
+                        setTimeAfter(local);
+                        setTimeBefore('');
+                      }}
+                      className="rounded border border-navy-200 bg-white px-2.5 py-1.5 text-xs font-medium text-navy-600 hover:bg-navy-50 hover:border-navy-300 transition-colors"
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
               </div>
 
               {(timeMode === 'AFTER' || timeMode === 'BETWEEN') && (
@@ -577,7 +755,7 @@ export default function ProjectDetails() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-navy-100 bg-white">
-                  {filteredLogs.map(log => {
+                  {pagedLogs.map(log => {
                     const isFailure = log.EventType === 'Failure';
                     const isExpanded = expandedLog === log.ID;
 
@@ -648,7 +826,7 @@ export default function ProjectDetails() {
 
             {/* Mobile cards */}
             <div className="md:hidden divide-y divide-navy-100">
-              {filteredLogs.map(log => {
+              {pagedLogs.map(log => {
                 const isFailure = log.EventType === 'Failure';
                 const isExpanded = expandedLog === log.ID;
 
@@ -696,6 +874,77 @@ export default function ProjectDetails() {
                 );
               })}
             </div>
+
+            {/* Pagination bar */}
+            {totalPages > 1 && (
+              <div className="flex items-center justify-between px-6 py-3 border-t border-navy-100 bg-white">
+                <span className="text-xs text-navy-500">
+                  Page <span className="font-semibold text-navy-800">{page}</span> of{' '}
+                  <span className="font-semibold text-navy-800">{totalPages}</span>
+                  {' '}·{' '}
+                  <span className="font-semibold text-navy-800">{filteredLogs.length}</span> total
+                </span>
+
+                <div className="flex items-center gap-1">
+                  <button
+                    onClick={() => { setPage(1); setExpandedLog(null); }}
+                    disabled={page === 1}
+                    className="rounded px-2 py-1 text-xs text-navy-600 hover:bg-navy-100 disabled:opacity-30 disabled:cursor-not-allowed"
+                    aria-label="First page"
+                  >
+                    «
+                  </button>
+                  <button
+                    onClick={() => { setPage(p => p - 1); setExpandedLog(null); }}
+                    disabled={page === 1}
+                    className="rounded px-2.5 py-1 text-xs text-navy-600 hover:bg-navy-100 disabled:opacity-30 disabled:cursor-not-allowed"
+                  >
+                    Prev
+                  </button>
+
+                  {Array.from({ length: totalPages }, (_, i) => i + 1)
+                    .filter(n => n === 1 || n === totalPages || Math.abs(n - page) <= 1)
+                    .reduce<(number | '…')[]>((acc, n, idx, arr) => {
+                      if (idx > 0 && n - (arr[idx - 1] as number) > 1) acc.push('…');
+                      acc.push(n);
+                      return acc;
+                    }, [])
+                    .map((n, i) =>
+                      n === '…' ? (
+                        <span key={`ellipsis-${i}`} className="px-1 text-xs text-navy-400">…</span>
+                      ) : (
+                        <button
+                          key={n}
+                          onClick={() => { setPage(n as number); setExpandedLog(null); }}
+                          className={`rounded px-2.5 py-1 text-xs font-medium ${
+                            page === n
+                              ? 'bg-navy-800 text-white'
+                              : 'text-navy-600 hover:bg-navy-100'
+                          }`}
+                        >
+                          {n}
+                        </button>
+                      )
+                    )}
+
+                  <button
+                    onClick={() => { setPage(p => p + 1); setExpandedLog(null); }}
+                    disabled={page === totalPages}
+                    className="rounded px-2.5 py-1 text-xs text-navy-600 hover:bg-navy-100 disabled:opacity-30 disabled:cursor-not-allowed"
+                  >
+                    Next
+                  </button>
+                  <button
+                    onClick={() => { setPage(totalPages); setExpandedLog(null); }}
+                    disabled={page === totalPages}
+                    className="rounded px-2 py-1 text-xs text-navy-600 hover:bg-navy-100 disabled:opacity-30 disabled:cursor-not-allowed"
+                    aria-label="Last page"
+                  >
+                    »
+                  </button>
+                </div>
+              </div>
+            )}
           </>
         )}
           </>
@@ -724,28 +973,37 @@ function EventBadge({ type }: { type: string }) {
 }
 
 function LogDetailPanel({ log }: { log: Log }) {
+  const [copiedField, setCopiedField] = useState<string | null>(null);
+
+  function copyField(label: string, value: string) {
+    navigator.clipboard.writeText(value).then(() => {
+      setCopiedField(label);
+      setTimeout(() => setCopiedField(null), 2000);
+    });
+  }
+
   const fmt = (raw: string) => {
     if (!raw || raw === 'NULL') return null;
     try { return JSON.stringify(JSON.parse(raw), null, 2); }
     catch { return raw; }
   };
 
-  const fields: [string, string, boolean?][] = [
-    ['Log ID',        log.ID],
-    ['Interface ID',  log.InterfaceID],
-    ['Transaction ID', log.TransactionID, true],
-    ['Event Type',    log.EventType],
-    ['Error Type',    log.ErrorType === 'NULL' ? '—' : log.ErrorType],
-    ['Service Name',  log.ServiceName, true],
-    ['Server',        log.ServerName],
-    ['Log Message',   log.LogMessage],
-    ['Display Order', log.DisplayOrder],
-    ['Auto Retry',    log.IsAutoRetry === '1' ? 'Yes' : 'No'],
-    ['Active',        log.IsActive],
-    ['Created By',    log.CreatedBy],
-    ['Created Date',  formatDateTime(log.CreatedDate)],
-    ['Modified By',   log.ModifiedBy === 'NULL' ? '—' : log.ModifiedBy],
-    ['Modified Date', log.ModifiedDate === 'NULL' ? '—' : log.ModifiedDate],
+  const fields: [string, string, boolean?, boolean?][] = [
+    ['Log ID',         log.ID,            false, true],
+    ['Interface ID',   log.InterfaceID],
+    ['Transaction ID', log.TransactionID,  true,  true],
+    ['Event Type',     log.EventType],
+    ['Error Type',     log.ErrorType === 'NULL' ? '—' : log.ErrorType],
+    ['Service Name',   log.ServiceName,    true],
+    ['Server',         log.ServerName],
+    ['Log Message',    log.LogMessage],
+    ['Display Order',  log.DisplayOrder],
+    ['Auto Retry',     log.IsAutoRetry === '1' ? 'Yes' : 'No'],
+    ['Active',         log.IsActive],
+    ['Created By',     log.CreatedBy],
+    ['Created Date',   formatDateTime(log.CreatedDate)],
+    ['Modified By',    log.ModifiedBy === 'NULL' ? '—' : log.ModifiedBy],
+    ['Modified Date',  log.ModifiedDate === 'NULL' ? '—' : log.ModifiedDate],
   ];
 
   const requestPayload  = fmt(log.RequestPayload);
@@ -755,7 +1013,7 @@ function LogDetailPanel({ log }: { log: Log }) {
   return (
     <div className="space-y-4">
       <div className="rounded-md border border-navy-200 overflow-hidden">
-        {fields.map(([label, value, mono], idx) => (
+        {fields.map(([label, value, mono, copyable], idx) => (
           <div
             key={label}
             className={`grid grid-cols-[160px_1fr] gap-4 px-4 py-2 text-xs ${
@@ -765,9 +1023,29 @@ function LogDetailPanel({ log }: { log: Log }) {
             <span className="font-semibold uppercase tracking-wider text-navy-500 shrink-0">
               {label}
             </span>
-            <span className={`text-navy-800 break-all ${mono ? 'font-mono' : ''}`}>
-              {value || '—'}
-            </span>
+            <div className="flex items-start gap-2 min-w-0">
+              <span className={`text-navy-800 break-all flex-1 ${mono ? 'font-mono' : ''}`}>
+                {value || '—'}
+              </span>
+              {copyable && value && value !== '—' && (
+                <button
+                  onClick={e => { e.stopPropagation(); copyField(label, value); }}
+                  className="shrink-0 rounded p-0.5 text-navy-400 hover:text-navy-700 hover:bg-navy-100 transition-colors"
+                  title="Copy to clipboard"
+                >
+                  {copiedField === label ? (
+                    <svg className="h-3.5 w-3.5 text-emerald-500" viewBox="0 0 20 20" fill="currentColor">
+                      <path fillRule="evenodd" d="M16.704 4.153a.75.75 0 0 1 .143 1.052l-8 10.5a.75.75 0 0 1-1.127.075l-4.5-4.5a.75.75 0 0 1 1.06-1.06l3.894 3.893 7.48-9.817a.75.75 0 0 1 1.05-.143Z" clipRule="evenodd" />
+                    </svg>
+                  ) : (
+                    <svg className="h-3.5 w-3.5" viewBox="0 0 20 20" fill="currentColor">
+                      <path d="M7 3.5A1.5 1.5 0 0 1 8.5 2h3.879a1.5 1.5 0 0 1 1.06.44l3.122 3.12A1.5 1.5 0 0 1 17 6.622V12.5a1.5 1.5 0 0 1-1.5 1.5h-1v-3.379a3 3 0 0 0-.879-2.121L10.5 5.379A3 3 0 0 0 8.379 4.5H7v-1Z" />
+                      <path d="M4.5 6A1.5 1.5 0 0 0 3 7.5v9A1.5 1.5 0 0 0 4.5 18h7a1.5 1.5 0 0 0 1.5-1.5v-5.879a1.5 1.5 0 0 0-.44-1.06L9.44 6.439A1.5 1.5 0 0 0 8.378 6H4.5Z" />
+                    </svg>
+                  )}
+                </button>
+              )}
+            </div>
           </div>
         ))}
       </div>

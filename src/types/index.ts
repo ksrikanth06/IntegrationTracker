@@ -43,6 +43,15 @@ export interface Log {
   IsActive: string;
 }
 
+export interface InterfaceInsights {
+  SuccessCount: number;
+  FailureCount: number;
+  TotalTransactions: number;
+  SuccessRate: number;
+  FailureRate: number;
+  LastTransactionTime: string | null;
+}
+
 export interface User {
   username: string;
   displayName: string;

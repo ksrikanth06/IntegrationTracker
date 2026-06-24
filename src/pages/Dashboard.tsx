@@ -1,4 +1,5 @@
 import { useMemo } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useAppDispatch, useAppSelector } from '../store/hooks';
 import { fetchIntegrationsThunk } from '../store/integrationsSlice';
 import StatCard from '../components/StatCard';
@@ -7,7 +8,8 @@ import { getCategory, getCategoryColor } from '../lib/utils';
 import { PageSpinner, PageError } from '../components/PageStates';
 
 export default function Dashboard() {
-  const dispatch = useAppDispatch();
+  const dispatch  = useAppDispatch();
+  const navigate  = useNavigate();
   const { items: integrations, loading, error } = useAppSelector(s => s.integrations);
   const refetch = () => dispatch(fetchIntegrationsThunk());
 
@@ -61,6 +63,7 @@ export default function Dashboard() {
           value={total}
           hint={`${active} active · ${inactive} inactive`}
           accent="navy"
+          onClick={() => navigate('/integrations')}
         />
         {pieData.map(({ name, value }) => (
           <StatCard
@@ -69,6 +72,7 @@ export default function Dashboard() {
             value={value}
             hint={total > 0 ? `${((value / total) * 100).toFixed(0)}% of catalog` : '—'}
             accentColor={getCategoryColor(name)}
+            onClick={() => navigate('/integrations', { state: { category: name } })}
           />
         ))}
       </div>
