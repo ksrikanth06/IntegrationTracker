@@ -1,0 +1,1001 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Integration Tracker — Feature Guide</title>
+  <style>
+    /* ── Reset & base ──────────────────────────────────────────────── */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    html { font-size: 10pt; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
+      color: #1e293b;
+      background: #fff;
+      line-height: 1.6;
+    }
+
+    /* ── Page layout ───────────────────────────────────────────────── */
+    .page {
+      width: 210mm;
+      min-height: 297mm;
+      margin: 0 auto;
+      padding: 14mm 16mm 14mm 16mm;
+    }
+    @media print {
+      body { background: #fff; }
+      .page { margin: 0; padding: 12mm 15mm; }
+      .page-break { page-break-before: always; }
+      .no-break { page-break-inside: avoid; }
+    }
+
+    /* ── Cover page ────────────────────────────────────────────────── */
+    .cover {
+      min-height: 270mm;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      align-items: flex-start;
+    }
+    .cover-eyebrow {
+      font-size: 9pt;
+      font-weight: 700;
+      letter-spacing: .18em;
+      text-transform: uppercase;
+      color: #c8102e;
+      margin-bottom: 10mm;
+    }
+    .cover-title {
+      font-size: 36pt;
+      font-weight: 800;
+      color: #0e1a2b;
+      line-height: 1.15;
+      margin-bottom: 4mm;
+    }
+    .cover-subtitle {
+      font-size: 13pt;
+      color: #475569;
+      margin-bottom: 14mm;
+      font-weight: 400;
+    }
+    .cover-divider {
+      width: 18mm;
+      height: 3px;
+      background: #c8102e;
+      border-radius: 2px;
+      margin-bottom: 14mm;
+    }
+    .cover-desc {
+      font-size: 10.5pt;
+      color: #334155;
+      max-width: 140mm;
+      line-height: 1.7;
+      margin-bottom: 20mm;
+    }
+    .cover-meta {
+      font-size: 8.5pt;
+      color: #94a3b8;
+    }
+    .cover-chips {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      margin-bottom: 18mm;
+    }
+    .chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      border-radius: 999px;
+      padding: 3px 10px;
+      font-size: 8pt;
+      font-weight: 600;
+      letter-spacing: .03em;
+    }
+    .chip-blue  { background: #dbeafe; color: #1d4ed8; }
+    .chip-green { background: #d1fae5; color: #065f46; }
+    .chip-amber { background: #fef3c7; color: #92400e; }
+    .chip-red   { background: #fee2e2; color: #991b1b; }
+    .chip-navy  { background: #e2e8f0; color: #1e293b; }
+    .chip-sky   { background: #e0f2fe; color: #0369a1; }
+
+    /* ── Typography ────────────────────────────────────────────────── */
+    h1.section-title {
+      font-size: 18pt;
+      font-weight: 800;
+      color: #0e1a2b;
+      margin-bottom: 2mm;
+      padding-bottom: 2.5mm;
+      border-bottom: 2px solid #e2e8f0;
+    }
+    h1.section-title span { color: #c8102e; }
+    h2.feature-title {
+      font-size: 12pt;
+      font-weight: 700;
+      color: #1e293b;
+      margin-bottom: 1.5mm;
+    }
+    h3.sub-title {
+      font-size: 9.5pt;
+      font-weight: 700;
+      color: #475569;
+      text-transform: uppercase;
+      letter-spacing: .1em;
+      margin-bottom: 2mm;
+      margin-top: 3.5mm;
+    }
+    p { margin-bottom: 2mm; color: #334155; font-size: 9.5pt; }
+    ul, ol { padding-left: 5mm; margin-bottom: 3mm; }
+    li { font-size: 9.5pt; color: #334155; margin-bottom: 1mm; line-height: 1.55; }
+    li strong { color: #1e293b; }
+
+    /* ── Cards ─────────────────────────────────────────────────────── */
+    .section { margin-bottom: 10mm; }
+    .section-intro { margin-bottom: 5mm; }
+
+    .feature-card {
+      border: 1px solid #e2e8f0;
+      border-radius: 8px;
+      padding: 5mm 6mm;
+      margin-bottom: 4mm;
+      background: #f8fafc;
+    }
+    .feature-card-header {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 2.5mm;
+    }
+    .feature-icon {
+      width: 28px;
+      height: 28px;
+      border-radius: 7px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 13pt;
+      flex-shrink: 0;
+    }
+    .icon-blue   { background: #dbeafe; }
+    .icon-green  { background: #d1fae5; }
+    .icon-purple { background: #ede9fe; }
+    .icon-amber  { background: #fef3c7; }
+    .icon-red    { background: #fee2e2; }
+    .icon-navy   { background: #e2e8f0; }
+    .icon-sky    { background: #e0f2fe; }
+
+    .two-col {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 4mm;
+    }
+    .three-col {
+      display: grid;
+      grid-template-columns: 1fr 1fr 1fr;
+      gap: 4mm;
+    }
+
+    /* ── Stat boxes ─────────────────────────────────────────────────── */
+    .stat-box {
+      border: 1px solid #e2e8f0;
+      border-radius: 8px;
+      padding: 4mm 5mm;
+      background: #fff;
+      text-align: center;
+    }
+    .stat-label {
+      font-size: 7.5pt;
+      text-transform: uppercase;
+      letter-spacing: .1em;
+      font-weight: 700;
+      color: #94a3b8;
+      margin-bottom: 1mm;
+    }
+    .stat-value {
+      font-size: 16pt;
+      font-weight: 800;
+      color: #0e1a2b;
+      line-height: 1.1;
+    }
+    .stat-sub {
+      font-size: 7.5pt;
+      color: #94a3b8;
+      margin-top: 0.5mm;
+    }
+
+    /* ── Badge/pill elements ────────────────────────────────────────── */
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      border-radius: 999px;
+      padding: 2px 8px;
+      font-size: 7.5pt;
+      font-weight: 600;
+    }
+    .badge::before {
+      content: '';
+      display: inline-block;
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+    }
+    .badge-start   { background: #e0f2fe; color: #0369a1; }
+    .badge-start::before   { background: #0ea5e9; }
+    .badge-info    { background: #fef3c7; color: #92400e; }
+    .badge-info::before    { background: #f59e0b; }
+    .badge-success { background: #d1fae5; color: #065f46; }
+    .badge-success::before { background: #10b981; }
+    .badge-failure { background: #fee2e2; color: #991b1b; }
+    .badge-failure::before { background: #ef4444; }
+
+    /* ── Table ──────────────────────────────────────────────────────── */
+    table { width: 100%; border-collapse: collapse; margin-bottom: 3mm; font-size: 8.5pt; }
+    th {
+      background: #f1f5f9;
+      color: #475569;
+      font-weight: 700;
+      font-size: 7.5pt;
+      text-transform: uppercase;
+      letter-spacing: .08em;
+      padding: 2.5mm 3mm;
+      text-align: left;
+      border-bottom: 1.5px solid #e2e8f0;
+    }
+    td {
+      padding: 2mm 3mm;
+      border-bottom: 1px solid #f1f5f9;
+      color: #334155;
+      vertical-align: top;
+    }
+    tr:last-child td { border-bottom: none; }
+    td strong { color: #1e293b; }
+
+    /* ── Call-out box ───────────────────────────────────────────────── */
+    .callout {
+      border-left: 3px solid #c8102e;
+      background: #fff5f5;
+      border-radius: 0 6px 6px 0;
+      padding: 3mm 4mm;
+      margin-bottom: 3mm;
+      font-size: 9pt;
+      color: #7f1d1d;
+    }
+    .callout-info {
+      border-left-color: #0ea5e9;
+      background: #f0f9ff;
+      color: #075985;
+    }
+    .callout-green {
+      border-left-color: #10b981;
+      background: #ecfdf5;
+      color: #065f46;
+    }
+
+    /* ── Footer / header ────────────────────────────────────────────── */
+    .doc-footer {
+      margin-top: 10mm;
+      padding-top: 3mm;
+      border-top: 1px solid #e2e8f0;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .doc-footer span { font-size: 7.5pt; color: #94a3b8; }
+    .page-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 6mm;
+      padding-bottom: 3mm;
+      border-bottom: 1px solid #e2e8f0;
+    }
+    .page-header-label { font-size: 7.5pt; color: #94a3b8; letter-spacing: .08em; text-transform: uppercase; }
+    .page-header-logo {
+      font-size: 9pt;
+      font-weight: 800;
+      color: #0e1a2b;
+      letter-spacing: .04em;
+    }
+    .page-header-logo span { color: #c8102e; }
+  </style>
+</head>
+<body>
+
+<!-- ══════════════════════════════════════════════════════════════════ -->
+<!--  COVER PAGE                                                        -->
+<!-- ══════════════════════════════════════════════════════════════════ -->
+<div class="page">
+  <div class="cover">
+    <div class="cover-eyebrow">Product Feature Guide · 2026</div>
+    <div class="cover-title">Integration<br>Tracker</div>
+    <div class="cover-subtitle">End-to-end visibility for your integration landscape</div>
+    <div class="cover-divider"></div>
+    <div class="cover-desc">
+      Integration Tracker gives your team a single pane of glass to browse interfaces,
+      investigate transaction logs, monitor success rates, and drill into failures —
+      all without leaving the browser. Built for operations and integration teams who
+      need fast answers without querying databases or parsing raw log files.
+    </div>
+    <div class="cover-chips">
+      <span class="chip chip-blue">Dashboard</span>
+      <span class="chip chip-navy">Interface Catalog</span>
+      <span class="chip chip-green">Logs Explorer</span>
+      <span class="chip chip-amber">Transaction Tracking</span>
+      <span class="chip chip-red">Failure Analysis</span>
+      <span class="chip chip-sky">Smart Caching</span>
+    </div>
+    <div class="cover-meta">
+      Integration Tracker &nbsp;·&nbsp; Internal Productivity Tool &nbsp;·&nbsp; June 2026
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════════════ -->
+<!--  PAGE 2 — TABLE OF CONTENTS                                        -->
+<!-- ══════════════════════════════════════════════════════════════════ -->
+<div class="page page-break">
+  <div class="page-header">
+    <span class="page-header-logo">Integration<span> Tracker</span></span>
+    <span class="page-header-label">Feature Guide</span>
+  </div>
+
+  <div class="section">
+    <h1 class="section-title">Table of <span>Contents</span></h1>
+    <br>
+    <table>
+      <tr><th>#</th><th>Section</th><th>Description</th></tr>
+      <tr><td>1</td><td><strong>Application Overview</strong></td><td>Architecture, technology stack, and navigation</td></tr>
+      <tr><td>2</td><td><strong>Dashboard</strong></td><td>At-a-glance metrics, category breakdown, and activity charts</td></tr>
+      <tr><td>3</td><td><strong>Integration Catalog</strong></td><td>Browse, search, and manage all interface definitions</td></tr>
+      <tr><td>4</td><td><strong>Interface Details</strong></td><td>Per-interface specification, logs, filters, and success rate</td></tr>
+      <tr><td>5</td><td><strong>Logs Explorer</strong></td><td>Cross-interface log search with advanced filters</td></tr>
+      <tr><td>6</td><td><strong>Event Type Model</strong></td><td>Four-stage transaction lifecycle and status tracking</td></tr>
+      <tr><td>7</td><td><strong>Filter &amp; Search Capabilities</strong></td><td>Full filter taxonomy available across screens</td></tr>
+      <tr><td>8</td><td><strong>Caching &amp; Sync</strong></td><td>Per-session data caching and manual sync controls</td></tr>
+      <tr><td>9</td><td><strong>API Integration</strong></td><td>Endpoint mapping and mock/live toggle</td></tr>
+      <tr><td>10</td><td><strong>Data Model</strong></td><td>Interface and Log field reference</td></tr>
+      <tr><td>11</td><td><strong>User Management</strong></td><td>Authentication and administration</td></tr>
+    </table>
+  </div>
+
+  <div class="section no-break">
+    <h1 class="section-title">1 · Application <span>Overview</span></h1>
+    <div class="section-intro">
+      <p>Integration Tracker is a React 18 single-page application designed for integration operations teams. It connects to a REST API to fetch interface definitions and transaction logs, presenting them through a fast, filterable UI.</p>
+    </div>
+    <div class="two-col">
+      <div class="feature-card no-break">
+        <h3 class="sub-title">Technology Stack</h3>
+        <ul>
+          <li><strong>Frontend:</strong> React 18 + TypeScript</li>
+          <li><strong>Build:</strong> Vite</li>
+          <li><strong>Styling:</strong> Tailwind CSS</li>
+          <li><strong>State management:</strong> Redux Toolkit</li>
+          <li><strong>Charts:</strong> Recharts</li>
+          <li><strong>Routing:</strong> React Router v6</li>
+        </ul>
+      </div>
+      <div class="feature-card no-break">
+        <h3 class="sub-title">Navigation Structure</h3>
+        <ul>
+          <li><strong>/ </strong> — Dashboard</li>
+          <li><strong>/integrations</strong> — Interface Catalog</li>
+          <li><strong>/projects/:id</strong> — Interface Details</li>
+          <li><strong>/logs</strong> — Logs Explorer</li>
+          <li><strong>/users</strong> — User Management</li>
+          <li><strong>/login</strong> — Authentication</li>
+        </ul>
+      </div>
+    </div>
+    <div class="callout callout-info">
+      All routes except <strong>/login</strong> are protected — users must be authenticated to access any part of the application. Session state is stored in <code>sessionStorage</code> and cleared on logout.
+    </div>
+  </div>
+
+  <div class="doc-footer">
+    <span>Integration Tracker · Feature Guide · 2026</span>
+    <span>Page 2</span>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════════════ -->
+<!--  PAGE 3 — DASHBOARD                                                -->
+<!-- ══════════════════════════════════════════════════════════════════ -->
+<div class="page page-break">
+  <div class="page-header">
+    <span class="page-header-logo">Integration<span> Tracker</span></span>
+    <span class="page-header-label">Feature Guide</span>
+  </div>
+
+  <div class="section">
+    <h1 class="section-title">2 · <span>Dashboard</span></h1>
+    <div class="section-intro">
+      <p>The Dashboard is the landing screen after login. It surfaces the most important operational metrics for the entire integration landscape without requiring any navigation.</p>
+    </div>
+
+    <div class="three-col" style="margin-bottom:4mm;">
+      <div class="stat-box no-break">
+        <div class="stat-label">Total Interfaces</div>
+        <div class="stat-value" style="color:#0e4f8a;">120</div>
+        <div class="stat-sub">Active in catalog</div>
+      </div>
+      <div class="stat-box no-break">
+        <div class="stat-label">Categories</div>
+        <div class="stat-value" style="color:#c8102e;">3</div>
+        <div class="stat-sub">MOBILITY · ERP · FREIGHT</div>
+      </div>
+      <div class="stat-box no-break">
+        <div class="stat-label">Priorities</div>
+        <div class="stat-value" style="color:#f59e0b;">4</div>
+        <div class="stat-sub">P1 through P4</div>
+      </div>
+    </div>
+
+    <h2 class="feature-title">Dashboard Widgets</h2>
+
+    <div class="two-col">
+      <div class="feature-card no-break">
+        <div class="feature-card-header">
+          <div class="feature-icon icon-blue">📊</div>
+          <h2 class="feature-title">Summary Stat Cards</h2>
+        </div>
+        <p>Four top-level cards display total interfaces, active interfaces, category count, and priority breakdown. Values update automatically when interface data is refreshed.</p>
+      </div>
+
+      <div class="feature-card no-break">
+        <div class="feature-card-header">
+          <div class="feature-icon icon-purple">🥧</div>
+          <h2 class="feature-title">Category Pie Chart</h2>
+        </div>
+        <p>An interactive pie chart breaks down all interfaces by <strong>ProjectOps</strong> category (MOBILITY, ERP, FREIGHT). Hovering a slice shows the exact count and percentage.</p>
+      </div>
+
+      <div class="feature-card no-break">
+        <div class="feature-card-header">
+          <div class="feature-icon icon-amber">📋</div>
+          <h2 class="feature-title">Interface List Preview</h2>
+        </div>
+        <p>A condensed list of interfaces with search and category filters. Each row links to the full Interface Details page. Responsive — adapts between card view (mobile) and table view (desktop).</p>
+      </div>
+
+      <div class="feature-card no-break">
+        <div class="feature-card-header">
+          <div class="feature-icon icon-green">🔢</div>
+          <h2 class="feature-title">Priority Breakdown</h2>
+        </div>
+        <p>Visual representation of how interfaces are distributed across P1–P4 priority levels. Helps teams quickly understand the criticality profile of the integration portfolio.</p>
+      </div>
+    </div>
+  </div>
+
+  <div class="section">
+    <h1 class="section-title">3 · Integration <span>Catalog</span></h1>
+    <div class="section-intro">
+      <p>The Integration Catalog lists every interface in the system. It is the primary reference for understanding what integrations exist, what systems they connect, and how they are configured.</p>
+    </div>
+
+    <div class="two-col">
+      <div class="feature-card no-break">
+        <div class="feature-card-header">
+          <div class="feature-icon icon-sky">🔍</div>
+          <h2 class="feature-title">Search &amp; Filter</h2>
+        </div>
+        <ul>
+          <li>Free-text search across interface ID, name, source/target systems, and package name</li>
+          <li>Filter by <strong>ProjectOps</strong> category (MOBILITY / ERP / FREIGHT)</li>
+          <li>Filter by <strong>Priority</strong> (P1 / P2 / P3 / P4)</li>
+          <li>Filter by <strong>Status</strong> (Active / Inactive)</li>
+          <li>Instant results — no submit button required</li>
+        </ul>
+      </div>
+
+      <div class="feature-card no-break">
+        <div class="feature-card-header">
+          <div class="feature-icon icon-navy">📄</div>
+          <h2 class="feature-title">Interface Card Fields</h2>
+        </div>
+        <ul>
+          <li><strong>Interface ID</strong> — unique identifier</li>
+          <li><strong>Interface Name</strong> — human-readable label</li>
+          <li><strong>Source → Target</strong> — system flow</li>
+          <li><strong>Protocol</strong> — source and target protocols</li>
+          <li><strong>Priority</strong> — P1–P4 badge</li>
+          <li><strong>Category</strong> — colour-coded chip</li>
+          <li><strong>Frequency</strong> — execution schedule</li>
+        </ul>
+      </div>
+    </div>
+    <div class="callout callout-green">
+      Clicking any interface card or row navigates directly to the <strong>Interface Details</strong> page for that interface, pre-loading its transaction logs.
+    </div>
+  </div>
+
+  <div class="doc-footer">
+    <span>Integration Tracker · Feature Guide · 2026</span>
+    <span>Page 3</span>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════════════ -->
+<!--  PAGE 4 — INTERFACE DETAILS                                        -->
+<!-- ══════════════════════════════════════════════════════════════════ -->
+<div class="page page-break">
+  <div class="page-header">
+    <span class="page-header-logo">Integration<span> Tracker</span></span>
+    <span class="page-header-label">Feature Guide</span>
+  </div>
+
+  <div class="section">
+    <h1 class="section-title">4 · Interface <span>Details</span></h1>
+    <div class="section-intro">
+      <p>The Interface Details screen provides a complete operational view of a single interface — its specification, recent transaction logs, success rate, and inline filters. It is the primary troubleshooting surface for a specific interface.</p>
+    </div>
+
+    <h2 class="feature-title" style="margin-bottom:3mm;">Screen Sections</h2>
+
+    <div class="feature-card no-break">
+      <div class="feature-card-header">
+        <div class="feature-icon icon-blue">🗂️</div>
+        <h2 class="feature-title">Specification Panel</h2>
+      </div>
+      <p>Displays all metadata for the interface in a structured key-value layout:</p>
+      <div class="two-col" style="margin-top:2mm;">
+        <ul>
+          <li><strong>Interface ID</strong></li>
+          <li><strong>Interface Name</strong></li>
+          <li><strong>Data Object</strong></li>
+          <li><strong>Package Name</strong></li>
+          <li><strong>Priority &amp; Frequency</strong></li>
+          <li><strong>Description</strong></li>
+        </ul>
+        <ul>
+          <li><strong>Source Application</strong></li>
+          <li><strong>Source Protocol</strong></li>
+          <li><strong>Target Application</strong></li>
+          <li><strong>Target Protocol</strong></li>
+          <li><strong>Project / Category</strong></li>
+          <li><strong>Status (Active / Inactive)</strong></li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="feature-card no-break">
+      <div class="feature-card-header">
+        <div class="feature-icon icon-green">📈</div>
+        <h2 class="feature-title">Transaction Success Rate</h2>
+      </div>
+      <p>The logs section header shows live metrics computed from the interface's transaction logs:</p>
+      <ul>
+        <li><strong>Total transactions</strong> — unique Transaction IDs that have resolved</li>
+        <li><strong>Succeeded</strong> — transactions ending in a <span class="badge badge-success">Success</span> event</li>
+        <li><strong>Failed</strong> — transactions ending in a <span class="badge badge-failure">Failure</span> event</li>
+        <li><strong>Success rate %</strong> — <em>succeeded ÷ (succeeded + failed) × 100</em></li>
+      </ul>
+      <div class="callout callout-info" style="margin-top:2mm; margin-bottom:0;">
+        Success rate is calculated per <strong>unique Transaction ID</strong>, not by counting individual log entries. A transaction with Start → Info → Success counts as one successful transaction regardless of how many log lines it produced.
+      </div>
+    </div>
+
+    <div class="feature-card no-break">
+      <div class="feature-card-header">
+        <div class="feature-icon icon-amber">🔎</div>
+        <h2 class="feature-title">Log Filters (per-interface)</h2>
+      </div>
+      <div class="two-col">
+        <ul>
+          <li><strong>Keyword</strong> — searches message, service, server</li>
+          <li><strong>Transaction ID</strong> — exact or partial match (monospace input with inline clear button)</li>
+          <li><strong>Event type</strong> — Start / Info / Success / Failure</li>
+        </ul>
+        <ul>
+          <li><strong>Server</strong> — filter by server name (shown when &gt;1 server)</li>
+          <li><strong>Time filter</strong> — After / Before / Between with full date + time + seconds picker</li>
+          <li><strong>Active chips</strong> — removable colour-coded chips for each active filter</li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="feature-card no-break">
+      <div class="feature-card-header">
+        <div class="feature-icon icon-navy">📋</div>
+        <h2 class="feature-title">Log Table &amp; Detail Panel</h2>
+      </div>
+      <ul>
+        <li>Desktop: sortable table with columns — Event badge, Log ID, Transaction ID (truncated), Service, Message, Server, Timestamp</li>
+        <li>Mobile: condensed card layout with the same fields</li>
+        <li><strong>Click any row</strong> to expand an inline detail panel showing all fields in a key-left / value-right layout</li>
+        <li>Failure rows highlighted in red; expanded row highlighted in navy</li>
+        <li>Results summary bar shows filtered count and Start · Info · ok · fail breakdown</li>
+        <li><strong>Sync button</strong> in the section header — forces a fresh API call regardless of cache</li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="doc-footer">
+    <span>Integration Tracker · Feature Guide · 2026</span>
+    <span>Page 4</span>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════════════ -->
+<!--  PAGE 5 — LOGS EXPLORER                                            -->
+<!-- ══════════════════════════════════════════════════════════════════ -->
+<div class="page page-break">
+  <div class="page-header">
+    <span class="page-header-logo">Integration<span> Tracker</span></span>
+    <span class="page-header-label">Feature Guide</span>
+  </div>
+
+  <div class="section">
+    <h1 class="section-title">5 · Logs <span>Explorer</span></h1>
+    <div class="section-intro">
+      <p>The Logs Explorer aggregates recent transaction logs across <em>all</em> interfaces into a single searchable, filterable view. It is designed for cross-interface investigations, failure audits, and trend analysis.</p>
+    </div>
+
+    <h2 class="feature-title" style="margin-bottom:3mm;">Summary Stat Cards</h2>
+    <div class="three-col" style="margin-bottom:4mm;">
+      <div class="stat-box no-break">
+        <div class="stat-label">Total Events</div>
+        <div class="stat-value" style="color:#0e4f8a;">4,441</div>
+        <div class="stat-sub">All log entries</div>
+      </div>
+      <div class="stat-box no-break">
+        <div class="stat-label">Successful Txns</div>
+        <div class="stat-value" style="color:#10b981;">1,182</div>
+        <div class="stat-sub">69% of completed</div>
+      </div>
+      <div class="stat-box no-break">
+        <div class="stat-label">Failed Txns</div>
+        <div class="stat-value" style="color:#ef4444;">521</div>
+        <div class="stat-sub">30% of completed</div>
+      </div>
+    </div>
+
+    <div class="feature-card no-break">
+      <div class="feature-card-header">
+        <div class="feature-icon icon-blue">📊</div>
+        <h2 class="feature-title">Activity Bar Chart — Top 8 Interfaces</h2>
+      </div>
+      <p>A stacked bar chart shows the top 8 most active interfaces by total log volume. Each bar is divided into four coloured segments matching the event type colour scheme. Hovering shows exact counts per segment.</p>
+      <div style="display:flex; gap:6px; flex-wrap:wrap; margin-top:2mm;">
+        <span class="badge badge-start">Start</span>
+        <span class="badge badge-info">Info</span>
+        <span class="badge badge-success">Success</span>
+        <span class="badge badge-failure">Failure</span>
+      </div>
+    </div>
+
+    <div class="feature-card no-break">
+      <div class="feature-card-header">
+        <div class="feature-icon icon-purple">🔍</div>
+        <h2 class="feature-title">Advanced Filter Panel</h2>
+      </div>
+      <p>Filters are arranged in two rows with active-filter chips below:</p>
+      <h3 class="sub-title">Row 1 — Scope Filters</h3>
+      <ul>
+        <li><strong>Interface</strong> — multi-select dropdown with inline search; select one or many interfaces; supports "select all filtered"</li>
+        <li><strong>Keyword</strong> — searches message, service, server fields</li>
+        <li><strong>Transaction ID</strong> — monospace input with inline ✕ clear; partial UUID match supported</li>
+        <li><strong>Event type</strong> — All / Start / Info / Success / Failure</li>
+      </ul>
+      <h3 class="sub-title">Row 2 — Time Filter</h3>
+      <ul>
+        <li><strong>After</strong> — logs created after a specific date + time + seconds</li>
+        <li><strong>Before</strong> — logs created before a specific date + time + seconds</li>
+        <li><strong>Between</strong> — logs within a date/time range (From → To pickers)</li>
+      </ul>
+      <h3 class="sub-title">Active Filter Chips</h3>
+      <p>Each active filter renders as a removable colour-coded chip. Clicking ✕ on a chip removes only that filter. A "Clear all" button resets the entire filter state.</p>
+    </div>
+
+    <div class="feature-card no-break">
+      <div class="feature-card-header">
+        <div class="feature-icon icon-navy">📄</div>
+        <h2 class="feature-title">Paginated Log Table</h2>
+      </div>
+      <ul>
+        <li><strong>20 records per page</strong> with full pagination controls (first, prev, numbered pages with ellipsis, next, last)</li>
+        <li>Page resets to 1 automatically whenever any filter changes</li>
+        <li><strong>Results summary bar</strong> — shows filtered count, total count, and Start · Info · ok · fail split for the current filter set</li>
+        <li>Clicking any row expands an inline detail panel (key-left / value-right layout including payloads)</li>
+        <li>Failure rows highlighted in red</li>
+        <li><strong>Sync button</strong> in the page header — animated spinner while loading</li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="doc-footer">
+    <span>Integration Tracker · Feature Guide · 2026</span>
+    <span>Page 5</span>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════════════ -->
+<!--  PAGE 6 — EVENT MODEL, FILTERS, CACHING                           -->
+<!-- ══════════════════════════════════════════════════════════════════ -->
+<div class="page page-break">
+  <div class="page-header">
+    <span class="page-header-logo">Integration<span> Tracker</span></span>
+    <span class="page-header-label">Feature Guide</span>
+  </div>
+
+  <div class="section">
+    <h1 class="section-title">6 · Event Type <span>Model</span></h1>
+    <div class="section-intro">
+      <p>Every log entry carries one of four event types that represent the lifecycle stages of an integration transaction. A transaction is a group of log entries that share the same <strong>TransactionID</strong>.</p>
+    </div>
+
+    <table>
+      <tr>
+        <th>Event</th>
+        <th>Badge</th>
+        <th>Meaning</th>
+        <th>Typical sequence position</th>
+      </tr>
+      <tr>
+        <td><strong>Start</strong></td>
+        <td><span class="badge badge-start">Start</span></td>
+        <td>Transaction initiated — inbound payload received and processing begun</td>
+        <td>Always first (required)</td>
+      </tr>
+      <tr>
+        <td><strong>Info</strong></td>
+        <td><span class="badge badge-info">Info</span></td>
+        <td>Intermediate processing step — validation, transformation, or enrichment in progress</td>
+        <td>Second (optional, ~60% of transactions)</td>
+      </tr>
+      <tr>
+        <td><strong>Success</strong></td>
+        <td><span class="badge badge-success">Success</span></td>
+        <td>Transaction completed — payload delivered and acknowledged by target system</td>
+        <td>Last (mutually exclusive with Failure)</td>
+      </tr>
+      <tr>
+        <td><strong>Failure</strong></td>
+        <td><span class="badge badge-failure">Failure</span></td>
+        <td>Transaction failed — target rejected the payload or a processing error occurred</td>
+        <td>Last (mutually exclusive with Success)</td>
+      </tr>
+    </table>
+
+    <div class="callout callout-info">
+      <strong>Transaction lifecycle:</strong> &nbsp;<span class="badge badge-start">Start</span> → <span class="badge badge-info">Info</span> <em>(optional)</em> → <span class="badge badge-success">Success</span> or <span class="badge badge-failure">Failure</span>.<br>
+      The success rate is always computed as <strong>successful transaction IDs ÷ resolved transaction IDs</strong>, not by counting individual log entries.
+    </div>
+  </div>
+
+  <div class="section">
+    <h1 class="section-title">7 · Filter &amp; Search <span>Capabilities</span></h1>
+
+    <table>
+      <tr>
+        <th>Filter</th>
+        <th>Available on</th>
+        <th>Behaviour</th>
+      </tr>
+      <tr>
+        <td><strong>Keyword search</strong></td>
+        <td>Logs Explorer, Interface Details</td>
+        <td>Case-insensitive substring match across message, service name, server name</td>
+      </tr>
+      <tr>
+        <td><strong>Transaction ID</strong></td>
+        <td>Logs Explorer, Interface Details</td>
+        <td>Case-insensitive partial match — paste a full UUID or just a prefix</td>
+      </tr>
+      <tr>
+        <td><strong>Interface (multi-select)</strong></td>
+        <td>Logs Explorer only</td>
+        <td>Checkbox dropdown with inline search; select one, many, or all filtered interfaces</td>
+      </tr>
+      <tr>
+        <td><strong>Event type</strong></td>
+        <td>Logs Explorer, Interface Details</td>
+        <td>Exact match — All / Start / Info / Success / Failure</td>
+      </tr>
+      <tr>
+        <td><strong>Server</strong></td>
+        <td>Interface Details only</td>
+        <td>Shown when &gt;1 server is present in the interface's logs; exact match</td>
+      </tr>
+      <tr>
+        <td><strong>Time — After</strong></td>
+        <td>Logs Explorer, Interface Details</td>
+        <td>Logs with CreatedDate after the selected datetime (date + time + seconds)</td>
+      </tr>
+      <tr>
+        <td><strong>Time — Before</strong></td>
+        <td>Logs Explorer, Interface Details</td>
+        <td>Logs with CreatedDate before the selected datetime</td>
+      </tr>
+      <tr>
+        <td><strong>Time — Between</strong></td>
+        <td>Logs Explorer, Interface Details</td>
+        <td>Logs within a From / To datetime range; both pickers shown simultaneously</td>
+      </tr>
+    </table>
+
+    <div class="callout callout-green" style="margin-top:2mm;">
+      All filters are <strong>composable</strong> — any combination can be applied simultaneously. The results bar and pagination update instantly on every keystroke or selection.
+    </div>
+  </div>
+
+  <div class="section">
+    <h1 class="section-title">8 · Caching <span>&amp; Sync</span></h1>
+    <div class="section-intro">
+      <p>To minimise unnecessary API calls and keep the UI fast, Integration Tracker implements a configurable per-session cache.</p>
+    </div>
+
+    <div class="two-col">
+      <div class="feature-card no-break">
+        <div class="feature-card-header">
+          <div class="feature-icon icon-green">⚡</div>
+          <h2 class="feature-title">MAINTAIN_CACHE = true</h2>
+        </div>
+        <ul>
+          <li>Each screen fetches its data <strong>only once per login session</strong></li>
+          <li>Returning to a screen re-uses the Redux store — no network call</li>
+          <li>Interface Details caches logs <strong>per interface ID</strong> — navigating between different interfaces only fetches data for interfaces not yet loaded</li>
+          <li>Cache is <strong>cleared on logout</strong>, ensuring the next session always starts fresh</li>
+        </ul>
+      </div>
+      <div class="feature-card no-break">
+        <div class="feature-card-header">
+          <div class="feature-icon icon-sky">🔄</div>
+          <h2 class="feature-title">Manual Sync Button</h2>
+        </div>
+        <ul>
+          <li>A <strong>Sync</strong> button is always visible on Logs Explorer and Interface Details regardless of cache setting</li>
+          <li>Clicking Sync <strong>forces a fresh API call</strong>, bypassing the cache, and overwrites stored data</li>
+          <li>The button shows an animated spinner and "Syncing…" label while the request is in flight</li>
+          <li>Useful when an incident is being investigated and the team needs the absolute latest data</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+
+  <div class="doc-footer">
+    <span>Integration Tracker · Feature Guide · 2026</span>
+    <span>Page 6</span>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════════════ -->
+<!--  PAGE 7 — API, DATA MODEL, USER MANAGEMENT                        -->
+<!-- ══════════════════════════════════════════════════════════════════ -->
+<div class="page page-break">
+  <div class="page-header">
+    <span class="page-header-logo">Integration<span> Tracker</span></span>
+    <span class="page-header-label">Feature Guide</span>
+  </div>
+
+  <div class="section">
+    <h1 class="section-title">9 · API <span>Integration</span></h1>
+    <div class="section-intro">
+      <p>All data is fetched via a configurable REST API. Three configuration flags in <code>config.ts</code> control the data source behaviour.</p>
+    </div>
+
+    <table style="margin-bottom:4mm;">
+      <tr>
+        <th>Endpoint</th>
+        <th>Screen</th>
+        <th>Description</th>
+      </tr>
+      <tr>
+        <td><code>GET /getInterfaceList</code></td>
+        <td>App-wide</td>
+        <td>Returns all interface definitions. Fetched once on layout mount.</td>
+      </tr>
+      <tr>
+        <td><code>GET /getRecentLogs</code></td>
+        <td>Logs Explorer</td>
+        <td>Returns recent logs across all interfaces. Fetched on first visit to Logs Explorer.</td>
+      </tr>
+      <tr>
+        <td><code>GET /getLogsByInterfaceID/{id}</code></td>
+        <td>Interface Details</td>
+        <td>Returns all logs for a specific interface. Fetched on first visit per interface ID.</td>
+      </tr>
+    </table>
+
+    <div class="callout callout-info">
+      All API responses must conform to the envelope structure: <code>{"response": {"results": [...]}}</code>. The client unwraps <code>response.results</code> before storing data in Redux.
+    </div>
+
+    <div class="two-col" style="margin-top:3mm;">
+      <div class="feature-card no-break">
+        <h3 class="sub-title">Configuration Flags</h3>
+        <ul>
+          <li><code>USE_API</code> — <code>true</code> enables API mode; <code>false</code> uses bundled static JSON</li>
+          <li><code>USE_MOCK</code> — when <code>true</code> alongside <code>USE_API</code>, the full API code path runs but all responses are served from local static files wrapped in the API envelope</li>
+          <li><code>MAINTAIN_CACHE</code> — controls per-session caching (see Section 8)</li>
+          <li><code>BASEURL</code> — base URL for all API calls (e.g. <code>http://localhost:8080</code>)</li>
+        </ul>
+      </div>
+      <div class="feature-card no-break">
+        <h3 class="sub-title">Mock Mode Benefits</h3>
+        <ul>
+          <li>Exercises the full API parsing and Redux flow without a live server</li>
+          <li>Developers can work offline with production-representative data</li>
+          <li>Switching to real APIs requires only setting <code>USE_MOCK = false</code></li>
+          <li>Error handling, loading states, and Sync behaviour are identical in mock and real modes</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+
+  <div class="section">
+    <h1 class="section-title">10 · Data <span>Model</span></h1>
+
+    <h2 class="feature-title" style="margin-bottom:2mm;">Interface Fields</h2>
+    <table>
+      <tr><th>Field</th><th>Type</th><th>Description</th></tr>
+      <tr><td><strong>InterfaceID</strong></td><td>string</td><td>Unique identifier for the interface</td></tr>
+      <tr><td><strong>InterfaceName</strong></td><td>string</td><td>Human-readable name</td></tr>
+      <tr><td><strong>DataObject</strong></td><td>string</td><td>Business entity being transferred</td></tr>
+      <tr><td><strong>PackageName</strong></td><td>string</td><td>Integration package / middleware module</td></tr>
+      <tr><td><strong>InterfacePriority</strong></td><td>P1–P4</td><td>Business criticality level</td></tr>
+      <tr><td><strong>InterfaceFrequency</strong></td><td>string</td><td>Execution schedule (e.g. real-time, daily)</td></tr>
+      <tr><td><strong>SourceApplication / Protocol</strong></td><td>string</td><td>Origin system and communication protocol</td></tr>
+      <tr><td><strong>TargetApplication / Protocol</strong></td><td>string</td><td>Destination system and communication protocol</td></tr>
+      <tr><td><strong>ProjectOps</strong></td><td>MOBILITY / ERP / FREIGHT</td><td>Business domain category</td></tr>
+      <tr><td><strong>IsActive</strong></td><td>0 / 1</td><td>Whether the interface is currently active</td></tr>
+    </table>
+
+    <h2 class="feature-title" style="margin-top:3mm; margin-bottom:2mm;">Log Fields</h2>
+    <table>
+      <tr><th>Field</th><th>Type</th><th>Description</th></tr>
+      <tr><td><strong>ID</strong></td><td>7-digit number</td><td>Sequential unique log entry identifier</td></tr>
+      <tr><td><strong>InterfaceID</strong></td><td>string</td><td>Parent interface reference</td></tr>
+      <tr><td><strong>TransactionID</strong></td><td>UUID</td><td>Groups all log entries belonging to one transaction</td></tr>
+      <tr><td><strong>EventType</strong></td><td>Start / Info / Success / Failure</td><td>Stage in the transaction lifecycle</td></tr>
+      <tr><td><strong>ErrorType</strong></td><td>string / NULL</td><td>Error category for Failure events (e.g. TIMEOUT, VALIDATION_ERROR)</td></tr>
+      <tr><td><strong>ServiceName</strong></td><td>string</td><td>Fully-qualified middleware service that produced the log</td></tr>
+      <tr><td><strong>LogMessage</strong></td><td>string</td><td>Human-readable description of the event</td></tr>
+      <tr><td><strong>ServerName</strong></td><td>string</td><td>Server instance that processed the transaction</td></tr>
+      <tr><td><strong>RequestPayload</strong></td><td>JSON / NULL</td><td>Inbound payload (populated on Start events)</td></tr>
+      <tr><td><strong>ResponsePayload</strong></td><td>JSON / NULL</td><td>Target system response (populated on Success events)</td></tr>
+      <tr><td><strong>ErrorPayload</strong></td><td>JSON / NULL</td><td>Error details including code and retry count (Failure events)</td></tr>
+      <tr><td><strong>IsAutoRetry</strong></td><td>0 / 1</td><td>Whether the transaction was automatically retried after failure</td></tr>
+      <tr><td><strong>CreatedDate</strong></td><td>ISO 8601 UTC</td><td>Timestamp of the log entry to millisecond precision</td></tr>
+    </table>
+  </div>
+
+  <div class="section no-break">
+    <h1 class="section-title">11 · User <span>Management</span></h1>
+    <div class="two-col">
+      <div class="feature-card">
+        <div class="feature-card-header">
+          <div class="feature-icon icon-navy">🔐</div>
+          <h2 class="feature-title">Authentication</h2>
+        </div>
+        <ul>
+          <li>Login screen at <code>/login</code> — accepts username + password</li>
+          <li>Session stored in <code>sessionStorage</code> — cleared automatically when the browser tab closes</li>
+          <li>All routes behind <strong>ProtectedRoute</strong> — unauthenticated access redirects to login</li>
+          <li>Logout clears session state <em>and</em> wipes the Redux data cache</li>
+        </ul>
+      </div>
+      <div class="feature-card">
+        <div class="feature-card-header">
+          <div class="feature-icon icon-purple">👥</div>
+          <h2 class="feature-title">User Management Page</h2>
+        </div>
+        <ul>
+          <li>Dedicated page at <code>/users</code> under the Administration section</li>
+          <li>Accessible from the sidebar navigation</li>
+          <li>Reserved for future features: user roles, access permissions, team management, and audit logs</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+
+  <div class="doc-footer">
+    <span>Integration Tracker · Feature Guide · 2026</span>
+    <span>Page 7</span>
+  </div>
+</div>
+
+</body>
+</html>
